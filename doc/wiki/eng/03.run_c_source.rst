@@ -1,5 +1,5 @@
 =================
-Running an impcomplete c source
+Running an imcomplete c source
 =================
 [`日本語 <../jpn/03.run_c_source.rst>`_]
 
