@@ -17,7 +17,7 @@ except SystemError:
 	from noue.coresyntax   import *
 	from noue.codegenerator import *
 
-class CConmpiler:
+class CCompiler:
 	def __init__(me, encoding=sys.getdefaultencoding()):
 		me.encoding = encoding
 		me.compiler = ExecodeGeneratorLLP64()
@@ -26,7 +26,10 @@ class CConmpiler:
 		me.preprocessor = Preprocessor(Tokenizer())
 		
 	def compile(me, file, encoding=None):
-		raise
+		with open(file, encoding=encoding or me.encoding) as f:
+			src = f.read()
+			return me.compile_source(src, file, 1, encoding=encoding or me.encoding)
+			
 	
 	def compile_source(me, src, filename, lineno, encoding=None):
 		module = me.parse(src, filename, lineno, encoding or me.encoding)
@@ -43,7 +46,7 @@ class CConmpiler:
 		
 		preprocessor = deepcopy(me.preprocessor)
 		
-		tok = preprocessor.proccess(src, __file__, lno)
+		tok = preprocessor.proccess(src, __file__, lineno)
 		
 		next(p)
 		with warnings.catch_warnings(record = True) as rec:
@@ -66,7 +69,7 @@ class CConmpiler:
 		return module
 		
 if __name__ == '__main__':
-	compiler = CConmpiler()
+	compiler = CCompiler()
 	
 	import inspect
 	lno = inspect.currentframe().f_lineno+1
