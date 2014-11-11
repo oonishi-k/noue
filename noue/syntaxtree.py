@@ -482,6 +482,8 @@ def is_funcptr(typ):
 #	return isinstance(func, funcid_descriptor)
 
 ## 構文木中の式オブジェクト
+
+
 class _expression(_node):
 	def __init__(me, restype, first, last):
 		if not isinstance(first, CodePositional):
@@ -754,12 +756,45 @@ class CallFuncptr(_Call):
 		me.func = funcptr
 		me.args = args
 
+		
 class _statement(_node):
+	@property
+	def first_token(me):
+		return me._first_token
+		
+	@first_token.setter
+	def first_token(me, token):
+		if me.first_token.file != token.file:
+			return
+		
+		if me.first_token.line > token.line:
+			me._first_token = token
+			if me.parent:
+				me.parent.first_token = token
+				
+	@property
+	def last_token(me):
+		return me._last_token
+		
+	@last_token.setter
+	def last_token(me, token):
+		if me.last_token.file != token.file:
+			return
+		
+		if me.last_token.line < token.line:
+			me._last_token = token
+			if me.parent:
+				me.parent.last_token = token
+			
+	
 	def __init__(me, first_token, last_token=None):
 		me.file = first_token.file
 		
-		me.first_token = first_token
-		me.last_token  = last_token or first_token
+		#me.first_token = first_token
+		#me.last_token  = last_token or first_token
+		
+		me._first_token = first_token
+		me._last_token  = last_token or first_token
 		me.parent = None
 		#if last_token: me.UpdateRange(last_token)
 
@@ -772,7 +807,7 @@ class CommentStmt(_simple_stmt):
 		me.value = token.value
 
 class DummyStmt(_simple_stmt):
-	pass
+	def __init__(me):pass
 	
 	
 
@@ -906,6 +941,7 @@ class _controlBlock(ExecBlock):
 		ExecBlock.__init__(me, first_token, last_token)
 		me.body = ExecBlock(first_token, last_token)
 		me.body.parent = weakref.proxy(me)
+		me.statements += [me.body]
 		
 class _loopBlock(_controlBlock):
 	pass
@@ -916,13 +952,14 @@ class For(_loopBlock):
 		me.test     = None
 		me.incl     = None
 
-class If(_loopBlock):
+class If(_controlBlock):
 	def __init__(me, first_token, last_token):
 		_controlBlock.__init__(me, first_token, last_token)
 		me.test = None
 		
 		me.orelse = ExecBlock(first_token, last_token)
 		me.orelse.parent = weakref.proxy(me)
+		me.statements += [me.orelse]
 		
 class While(_loopBlock):
 	def __init__(me, first_token, last_token):
@@ -974,7 +1011,7 @@ class LabelStmt(_simple_stmt):
 	def __init__(me, label_token, colon_token):
 		_simple_stmt.__init__(me, label_token, colon_token)
 		
-		me.label = colon_token.value
+		me.label = label_token.value
 		
 
 class BreakStmt(_simple_stmt):
@@ -1013,9 +1050,42 @@ class UnionDefine(_scope):
 
 
 class ModuleFile(_scope):
+	@property
+	def first_token(me):
+		me._first_token
+		
+	@first_token.setter
+	def first_token(me, token):
+		if me.first_token is None:
+			me._first_token = token
+			return
+		
+		if me.first_token.file != token.file:
+			return
+			
+		if me.first_token.line > token.line:
+			me._first_token = token
+			
+	@property
+	def last_token(me):
+		me._last_token
+		
+	@last_token.setter
+	def last_token(me, token):
+		if me.last_token is None:
+			me._last_token = token
+			return
+		
+		if me.last_token.file != token.file:
+			return
+			
+		if me.last_token.line < token.line:
+			me._last_token = token
+		
+	
 	def __init__(me, name=''):
-		me.first_token = None
-		me.last_token  = None
+		me._first_token = None
+		me._last_token  = None
 
 		me.name = name
 		me.parent = None

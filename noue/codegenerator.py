@@ -3,12 +3,15 @@ try:
 	from .preprocessor import *
 	from .syntaxtree import *
 	from .syntaxtree import _node, _statement, _scope, _expression, _expbinop, _function_stmt, _loopBlock, _type_descriptor, _execscope, _declareVarStmt
+	
+	from .goto import *
 except SystemError:
 	import imp
 	noue = imp.load_source('noue', './__init__.py')
 	from noue.preprocessor import *
 	from noue.syntaxtree import *
 	from noue.syntaxtree import _node, _statement, _scope, _expression, _expbinop, _function_stmt, _loopBlock, _type_descriptor, _execscope, _declareVarStmt
+	from noue.goto import *
 
 
 import ctypes as pyct
@@ -105,7 +108,6 @@ class GlobalVarConverter:
 		me._conststrings = []
 		me.typeconverter = typeconverter
 		me.exprconverter  = exprconverter
-		me.staticvars = {}
 		me.staticvarinitcode = []
 		me.staticvarcreatecode = []
 		
@@ -116,20 +118,7 @@ class GlobalVarConverter:
 	#	res = len(me._conststrings)
 	#	me._conststrings += [ctype(*tuple(cs.value))]
 	#	return '$CONSTSTR#%d'%res
-		
-	def getuniqueid(me, stmt):
-		return stmt.__getuniqueid(me)
-		
-	def __getuniqueid(stmt, me):
-		try:
-			id = stmt.__uniqueid
-		except AttributeError:
-			index = len(me.staticvars)
-			id = '$S#%d$'%index + stmt.id
-			stmt.__uniqueid = id
-			
-		return id
-	LocalStaticStmt.__getuniqueid = __getuniqueid
+
 		
 	def globalinit(me, stmt, id):
 		
@@ -193,6 +182,20 @@ class GlobalVarConverter:
 				)
 				
 		me.staticvarinitcode += [ast]
+		
+		
+	def getuniqueid(me, stmt):
+		return stmt.__getuniqueid(me)
+		
+	def __getuniqueid(stmt, me):
+		return '$S#%d$'%stmt.__uniqueidnum + stmt.id
+	LocalStaticStmt.__getuniqueid = __getuniqueid
+	
+	def __getuniqueid(stmt, me):
+		return '$L#%d$'%stmt.__uniqueidnum + stmt.id
+	LocalVarStmt.__getuniqueid = __getuniqueid
+	
+
 	
 	def compile(me, stmt):
 		return stmt.__compile(me)
@@ -217,6 +220,9 @@ class GlobalVarConverter:
 					targets=[
 						pyast.Name(
 							id=stmt.id,ctx=pyast.Store(),
+							lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
+						pyast.Name(
+							id=me.getuniqueid(stmt),ctx=pyast.Store(),
 							lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
 					],
 					value=value,
@@ -245,6 +251,67 @@ class GlobalVarConverter:
 	
 	LocalStaticStmt.__compile = __compile	
 	GlobalStaticStmt.__compile = __compile
+	
+	def rollbackname(me, stmt, token):
+		return stmt.__rollbackname(me, token)
+		
+	def __rollbackname(stmt, me, token):
+		return pyast.Assign(
+				targets=[
+					pyast.Name(
+						id=stmt.id,ctx=pyast.Store(),
+						lineno=token.line, col_offset=token.col),
+				],
+				value=pyast.Name(
+						id=me.getuniqueid(stmt),ctx=pyast.Load(),
+						lineno=token.line, col_offset=token.col),
+				lineno=token.line, col_offset=token.col
+			)
+	LocalVarStmt.__rollbackname = __rollbackname
+	LocalStaticStmt.__rollbackname = __rollbackname
+
+	
+	def getfuncscope(me, stmt):
+		p = stmt.parent
+		while isinstance(p, _execscope):
+			if isinstance(p, DefineFunctionStmt):
+				return p
+			p = p.parent
+		else:
+			raise FatalError()
+
+	
+	## コンパイルに先立ち、各変数について、ユニークIDをふる
+	def setuniequeid(me, stmt):
+		stmt.__setuniequeid(me)
+		
+	def __setuniequeid(scope, me):
+		for s in scope.statements:
+			me.setuniequeid(s)
+	_execscope.__setuniequeid = __setuniequeid	
+	
+	def __setuniequeid(scope, me):
+		scope.__varcnt = 0
+		for s in scope.statements:
+			me.setuniequeid(s)
+			
+	DefineFunctionStmt.__setuniequeid = __setuniequeid
+			
+	def __setuniequeid(scope, me):
+		return
+	_statement.__setuniequeid = __setuniequeid
+	
+	def __setuniequeid(stmt, me):
+		func = me.getfuncscope(stmt)
+		stmt.__uniqueidnum = func.__varcnt
+		func.__varcnt += 1
+		
+		return
+	LocalVarStmt.__setuniequeid    = __setuniequeid
+	LocalStaticStmt.__setuniequeid    = __setuniequeid
+	#LocalExternStmt.__setuniequeid    = __setuniequeid
+
+
 
 
 class ExpressionConverter:
@@ -263,39 +330,7 @@ class ExpressionConverter:
 			res += [r]
 		return res
 
-		
-	def construct(me, restype, init, token):
-		if type(init) == list:
-			values = me.compilelist(init)
-		elif is_expression(init):
-			if isinstance(init, ConstString):
-				if is_sizedarray(restype):
-					val = me.conststring.conststring(init)
-					copy = pyast.Call(
-						func=me.typeconverter.typecall(init.restype, init.first_token),
-						args=[],
-						keywords=[],
-						starargs=pyast.Call(
-							func=pyast.Name(
-								id='tuple',
-								ctx=pyast.Load(),
-								lineno = init.first_token.line,col_offset=init.first_token.col
-							),
-							args=[val],
-							keywords=[],
-							starargs=None,
-							kwargs=None,
-							lineno = init.first_token.line,col_offset=init.first_token.col
-						),
-						kwargs=None,
-						lineno = init.first_token.line,col_offset=init.first_token.col
-					)
-					return copy
-				else:
-					values = [me.compile(me.toright(init))]
-			else:
-				values = [me.compile(me.toright(init))]
-		elif init is None:
+	def uninitiallized(me, restype, token):
 			size = me.typeconverter.sizeof(restype)
 			value = value=pyast.Call(
 								func=pyast.Name(
@@ -331,6 +366,77 @@ class ExpressionConverter:
 					 args=[value],
 					 keywords=[],starargs=None,kwargs=None,
 					 lineno = token.line,col_offset=token.col)
+			return ast
+		
+		
+	def construct(me, restype, init, token):
+		if type(init) == list:
+			values = me.compilelist(init)
+		elif is_expression(init):
+			if isinstance(init, ConstString):
+				if is_sizedarray(restype):
+					val = me.conststring.conststring(init)
+					copy = pyast.Call(
+						func=me.typeconverter.typecall(init.restype, init.first_token),
+						args=[],
+						keywords=[],
+						starargs=pyast.Call(
+							func=pyast.Name(
+								id='tuple',
+								ctx=pyast.Load(),
+								lineno = init.first_token.line,col_offset=init.first_token.col
+							),
+							args=[val],
+							keywords=[],
+							starargs=None,
+							kwargs=None,
+							lineno = init.first_token.line,col_offset=init.first_token.col
+						),
+						kwargs=None,
+						lineno = init.first_token.line,col_offset=init.first_token.col
+					)
+					return copy
+				else:
+					values = [me.compile(me.toright(init))]
+			else:
+				values = [me.compile(me.toright(init))]
+		elif init is None:
+			ast = me.uninitiallized(restype, token)
+			#size = me.typeconverter.sizeof(restype)
+			#value = value=pyast.Call(
+			#					func=pyast.Name(
+			#						id='c_buffer',
+			#						ctx=pyast.Load(),
+			#						lineno=token.line,col_offset=token.col
+			#					),
+			#					args=[
+			#						pyast.BinOp(
+			#							left=pyast.Bytes(s=b'\xbc',
+			#									lineno=token.line,col_offset=token.col),
+			#							op=pyast.Mult(),
+			#							right=pyast.Num(
+			#								n=size,
+			#								lineno=token.line,col_offset=token.col),
+			#							lineno=token.line,col_offset=token.col
+			#						),
+			#						pyast.Num(
+			#							n=size,
+			#							lineno=token.line,col_offset=token.col),
+			#					],
+			#					keywords=[],
+			#					starargs=None,
+			#					kwargs=None,
+			#					lineno=token.line,col_offset=token.col)
+			#typeast = me.typeconverter.typecall(restype, token)
+			#ast = pyast.Call(
+			#		 func=pyast.Attribute(
+			#			 value=typeast,
+			#			 attr='from_buffer',
+			#			 ctx=pyast.Load(),
+			#			 lineno = token.line,col_offset=token.col),
+			#		 args=[value],
+			#		 keywords=[],starargs=None,kwargs=None,
+			#		 lineno = token.line,col_offset=token.col)
 			return ast
 
 			
@@ -382,6 +488,9 @@ class ExpressionConverter:
 	PreIncl.__compile = __compile
 		
 	def __compile(exp, me):
+		#if exp.func.id == 'find':
+		#	print(exp.args)
+		#	raise
 		func=pyast.Attribute(
 			 value=pyast.Name(id='$G',
 					ctx=pyast.Load(),
@@ -425,11 +534,11 @@ class ExpressionConverter:
 			if prototype.has_vararg:
 				for arg in exp.args[len(prototype.args):][::-1]:
 					args += [me.copyfromright(arg)]
-				for arg,argdef in reversed(list(zip(exp.args, prototype.args))):
-					argtyp = strip_options(argdef.restype)
-					if strip_options(arg.restype) != argtyp:
-						arg = ImplicitCast(argtyp, arg)
-					args += [me.copyfromright(arg)]
+			for arg,argdef in reversed(list(zip(exp.args, prototype.args))):
+				argtyp = strip_options(argdef.restype)
+				if strip_options(arg.restype) != argtyp:
+					arg = ImplicitCast(argtyp, arg)
+				args += [me.copyfromright(arg)]
 			
 		return pyast.Call(
 			func=func,
@@ -1241,6 +1350,12 @@ class ExecodeGeneratorLLP64:
 		module.__current_vars  = {}
 		module.__external_vars = {}
 		
+		set_goto.goto  = '$GOTO'
+		set_goto.label = '$LABEL'
+		set_goto.pushblock = '$PUSH'
+		set_goto.popblock  = '$POP'
+		pymod.__dict__['$SETGOTO'] = set_goto
+		
 		for stmt in module.statements:
 			codes = me.compile(stmt)
 			if codes:
@@ -1253,6 +1368,7 @@ class ExecodeGeneratorLLP64:
 			#print(key, compiler.typecnverter._uniquename[key])
 			name = me.typecnverter._uniquename[key]
 			setattr(pymod, name, key)
+			
 		import ctypes
 		pymod.c_char_p = ctypes.c_char_p
 		pymod.cast     = ctypes.cast
@@ -1260,6 +1376,8 @@ class ExecodeGeneratorLLP64:
 		pymod.POINTER     = ctypes.POINTER
 		pymod.c_buffer    = ctypes.c_buffer
 		pymod.pointer    = ctypes.pointer
+		pymod.addressof    = ctypes.addressof
+		
 		code = compile(pyast.Module(body=me.globalvarconverter.staticvarcreatecode), __file__, 'exec')
 		exec(code, pymod.__dict__)
 		code = compile(pyast.Module(body=me.globalvarconverter.staticvarinitcode), __file__, 'exec')
@@ -1323,20 +1441,9 @@ class ExecodeGeneratorLLP64:
 	
 	def __escape(scope, me):
 		body = []
-		for id,backup in scope.__current_vars.items():
-			if backup:
-				ast = pyast.Assign(
-							targets=[
-								pyast.Name(
-									id=id,ctx=pyast.Store(),
-									lineno=scope.last_token.line, col_offset=scope.last_token.col),
-							],
-							value=pyast.Name(
-									id=backup,ctx=pyast.Load(),
-									lineno=scope.last_token.line, col_offset=scope.last_token.col),
-							lineno=scope.last_token.line, col_offset=scope.last_token.col
-						)
-
+		for id,stmt in scope.__current_vars.items():
+			if id in scope.__external_vars:
+				ast = me.globalvarconverter.rollbackname(scope.__external_vars[id], scope.last_token)
 			else:
 				ast = pyast.Delete(
 					targets=[
@@ -1362,9 +1469,13 @@ class ExecodeGeneratorLLP64:
 	
 	ExecBlock.__compile = __compile
 	
+	
 	def __compile(func, me):
 		if func.haserror:
 			return []
+		
+		me.globalvarconverter.setuniequeid(func)
+		
 		_scope.__init(func, me)
 		func.__stack_size = 0
 			
@@ -1372,6 +1483,10 @@ class ExecodeGeneratorLLP64:
 			"""def NAME(arg):
 				pass
 			""").body[0]
+			
+		ast.decorator_list = [pyast.Name(
+									id='$SETGOTO',ctx=pyast.Load(),
+									lineno=func.first_token.line, col_offset=func.first_token.col)]
 		
 		ast.name = func.id
 		ast.args.args = [pyast.arg(arg=arg.id, annotation=None) for arg in func.prototype.args]
@@ -1409,6 +1524,241 @@ class ExecodeGeneratorLLP64:
 		return [pyast.Return(value=value, lineno=stmt.first_token.line, col_offset=stmt.first_token.col)]
 	ReturnStmt.__compile = __compile
 	
+	def skipedvar(me, stmt):
+			if isinstance(stmt, LocalVarStmt):
+				value = me.exprconverter.uninitiallized(stmt.restype, stmt.first_token)
+				ast = pyast.Assign(
+					targets=[
+						pyast.Name(
+							id=stmt.id,ctx=pyast.Store(),
+							lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
+						pyast.Name(
+							id=me.globalvarconverter.getuniqueid(stmt),ctx=pyast.Store(),
+							lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
+					],
+					value=value,
+					lineno=stmt.first_token.line, col_offset=stmt.first_token.col
+				)
+				return ast
+			elif isinstance(stmt, LocalStaticStmt):
+				ast = pyast.Assign(
+					targets=[
+						pyast.Name(
+							id=stmt.id,ctx=pyast.Store(),
+							lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
+					],
+					value=pyast.Name(
+							id=me.globalvarconverter.getuniqueid(stmt),ctx=pyast.Load(),
+							lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
+					lineno=stmt.first_token.line, col_offset=stmt.first_token.col
+				)
+				return ast
+			elif isinstance(stmt, LocalExtern):
+				value = pyast.Name(
+							id='$G',
+							ctx=pyast.Load(),
+							lineno = stmt.first_token.line,
+							col_offset=stmt.first_token.col,
+						)
+				ast=pyast.Attribute(
+					value=value,
+					attr=stmt.id,
+					ctx=pyast.Load(),
+					lineno=stmt.first_token.line,
+					col_offset=stmt.first_token.col)
+
+				ast = pyast.Assign(
+					targets=[
+						pyast.Name(
+							id=stmt.id,ctx=pyast.Store(),
+							lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
+					],
+					value=ast,
+					lineno=stmt.first_token.line, col_offset=stmt.first_token.col
+				)
+				return ast
+			else:
+				raise FatalError()
+		
+	
+	def __skipinto(scope, me, scopestack):
+		if not scopestack or scope != scopestack[-1]:
+			raise FatalError
+			
+		scopestack.pop()
+		if not scopestack:
+			raise FatalError
+		
+		res = []
+		for s in scope.statements:
+			if s == scopestack[-1]:
+				return res + s.__skipinto(me, scopestack)
+			if not isinstance(s, _declareVarStmt): continue
+			
+			res += [me.skipedvar(s)]
+			#if isinstance(s, LocalVarStmt):
+			#	value = me.exprconverter.uninitiallized(s.restype, s.first_token)
+			#	ast = pyast.Assign(
+			#		targets=[
+			#			pyast.Name(
+			#				id=s.id,ctx=pyast.Store(),
+			#				lineno=s.first_token.line, col_offset=s.first_token.col),
+			#			pyast.Name(
+			#				id=me.globalvarconverter.getuniqueid(s),ctx=pyast.Store(),
+			#				lineno=s.first_token.line, col_offset=s.first_token.col),
+			#		],
+			#		value=value,
+			#		lineno=s.first_token.line, col_offset=s.first_token.col
+			#	)
+			#	res += [ast]
+			#elif isinstance(s, LocalStaticStmt):
+			#	ast = pyast.Assign(
+			#		targets=[
+			#			pyast.Name(
+			#				id=s.id,ctx=pyast.Store(),
+			#				lineno=s.first_token.line, col_offset=s.first_token.col),
+			#		],
+			#		value=pyast.Name(
+			#				id=me.globalvarconverter.getuniqueid(s),ctx=pyast.Load(),
+			#				lineno=s.first_token.line, col_offset=s.first_token.col),
+			#		lineno=s.first_token.line, col_offset=s.first_token.col
+			#	)
+			#	res += [ast]
+			#elif isinstance(s, LocalExtern):
+			#	value = pyast.Name(
+			#				id='$G',
+			#				ctx=pyast.Load(),
+			#				lineno = s.first_token.line,
+			#				col_offset=s.first_token.col,
+			#			)
+			#	ast=pyast.Attribute(
+			#		value=value,
+			#		attr=s.id,
+			#		ctx=pyast.Load(),
+			#		lineno=s.first_token.line,
+			#		col_offset=s.first_token.col)
+            #
+			#	ast = pyast.Assign(
+			#		targets=[
+			#			pyast.Name(
+			#				id=s.id,ctx=pyast.Store(),
+			#				lineno=s.first_token.line, col_offset=s.first_token.col),
+			#		],
+			#		value=ast,
+			#		lineno=s.first_token.line, col_offset=s.first_token.col
+			#	)
+			#	res += [ast]
+			#else:
+			#	raise FatalError()
+
+				
+			print(s, me.globalvarconverter.getuniqueid(s))
+			
+		#raise FatalError()
+				
+	_execscope.__skipinto = __skipinto
+	def __skipinto(stmt, me, scopestack):
+		return []
+	LabelStmt.__skipinto = __skipinto
+	
+	def __compile(stmt, me):
+		print(stmt, stmt.label, stmt.labelstmt)
+		if stmt.labelstmt is None:
+			msg = 'gotoに対応するラベル"%s"がありません'%stmt.label
+			raise SyntaxError(stmt.first_token, msg)
+		
+		labelparents = [stmt.labelstmt]
+		p = stmt.labelstmt.parent
+		while isinstance(p, _execscope):
+			labelparents += [p]
+			if isinstance(p, DefineFunctionStmt):
+				break
+			p = p.parent
+		else:
+			raise FatalError()
+			
+		body = []
+		last = stmt
+		p = stmt.parent
+		escape_loop = 0
+		while p not in labelparents:
+			if isinstance(p, _loopBlock):
+				escape_loop += 1
+			if isinstance(p, DefineFunctionStmt):
+				raise FatalError()
+			body += p.__escape(me)
+			last = p
+			p = p.parent
+			
+		root = labelparents[labelparents.index(p)]
+		labelparents = labelparents[:labelparents.index(p)]
+		
+		gotoindex  = root.statements.index(last)
+		labelindex = root.statements.index(labelparents[-1])
+		
+		if gotoindex < labelindex:
+			for s in root.statements[gotoindex:labelindex]:
+				if not isinstance(s, _declareVarStmt): continue
+				body += [me.skipedvar(s)]
+		elif gotoindex > labelindex:
+			for s in root.statements[labelindex:gotoindex]:
+				if not isinstance(s, _declareVarStmt): continue
+				ast = me.globalvarconverter.rollbackname(s, stmt.first_toke)
+				body += [ast]
+		
+		enter_loop = 0
+		for sc in labelparents:
+			if isinstance(sc, _loopBlock):
+				enter_loop += 1
+		
+		body += labelparents[-1].__skipinto(me, labelparents)
+		
+		## gotoとラベルでループの深さが異なる場合は、pop_block、setup_loopを追加する
+		if escape_loop < enter_loop:
+			for _ in range(enter_loop-escape_loop):
+				push = value=pyast.Name(
+						id = '$PUSH', ctx=pyast.Load(),
+						lineno = stmt.first_token.line,col_offset=stmt.first_token.col
+					 )
+				ast = pyast.Expr(value=push,lineno = stmt.first_token.line,col_offset=stmt.first_token.col)
+				body += [ast]
+		elif escape_loop > enter_loop:
+			for _ in range(escape_loop-enter_loop):
+				pop = value=pyast.Name(
+						id = '$POP', ctx=pyast.Load(),
+						lineno = stmt.first_token.line,col_offset=stmt.first_token.col
+					 )
+				ast = pyast.Expr(value=pop,lineno = stmt.first_token.line,col_offset=stmt.first_token.col)
+				body += [ast]
+		
+		goto = pyast.Attribute(
+			 value=pyast.Name(
+				id = '$GOTO', ctx=pyast.Load(),
+				lineno = stmt.first_token.line,col_offset=stmt.first_token.col
+			 ),
+			 attr=stmt.label,
+			 ctx=pyast.Load(),
+			 lineno = stmt.first_token.line,col_offset=stmt.first_token.col)
+		ast = pyast.Expr(value=goto,lineno = stmt.first_token.line,col_offset=stmt.first_token.col)
+		return body + [ast]
+		
+	GotoStmt.__compile = __compile
+	
+	def __compile(stmt, me):
+		print(stmt, stmt.label)
+		label = pyast.Attribute(
+			 value=pyast.Name(
+				id = '$LABEL', ctx=pyast.Load(),
+				lineno = stmt.first_token.line,col_offset=stmt.first_token.col
+			 ),
+			 attr=stmt.label,
+			 ctx=pyast.Load(),
+			 lineno = stmt.first_token.line,col_offset=stmt.first_token.col)
+		ast = pyast.Expr(value=label,lineno = stmt.first_token.line,col_offset=stmt.first_token.col)
+		return [ast]
+	LabelStmt.__compile = __compile
+
+	
 	def __compile(stmt, me):
 		s = stmt
 		body = []
@@ -1443,6 +1793,13 @@ class ExecodeGeneratorLLP64:
 		_scope.__init(stmt, me)
 		test = me.exprconverter.compile(me.exprconverter.toright(stmt.test))
 		
+		if type(test) == pyast.Num and test.n == 0:
+			# if 0:はpythonが消してしまう。gotoとの兼ね合い上必要
+			new = pyast.parse('0 and 1').body[0].value
+			for n in pyast.walk(new):
+				n.lineno     = test.lineno
+				n.col_offset = test.col_offset
+			test = new
 			
 		ast = pyast.parse(r"""
 if 1:
@@ -1469,6 +1826,13 @@ else:
 		_scope.__init(stmt, me)
 		test = me.exprconverter.compile(me.exprconverter.toright(stmt.test))
 		
+		if type(test) == pyast.Num and test.n == 0:
+			# while 0:はpythonが消してしまう。gotoとの兼ね合い上必要
+			new = pyast.parse('0 and 1').body[0].value
+			for n in pyast.walk(new):
+				n.lineno     = test.lineno
+				n.col_offset = test.col_offset
+			test = new
 			
 		ast = pyast.parse(r"""
 while 1:
@@ -1488,9 +1852,81 @@ while 1:
 	
 	def __compile(scope, me):	
 		_scope.__init(scope, me)
+		test = me.exprconverter.compile(me.exprconverter.toright(scope.test))
+		
+		if type(test) == pyast.Num and test.n == 0:
+			# while 0:はpythonが消してしまう。gotoとの兼ね合い上必要
+			new = pyast.parse('0 and 1').body[0].value
+			for n in pyast.walk(new):
+				n.lineno     = test.lineno
+				n.col_offset = test.col_offset
+			test = new
+			
+
+		
+		dowhilebody = pyast.parse(
+			"""
+__COUNT__ = CINT()
+while (__TEST__ if __COUNT__.value else (setattr(__COUNT__, 'value', 1),1)[1]):
+		pass
+del __COUNT__
+"""					).body
+		for n in pyast.walk(dowhilebody[0]):
+			n.lineno     = scope.first_token.line
+			n.col_offset = scope.first_token.col
+		for n in pyast.walk(dowhilebody[1]):
+			n.lineno     = scope.first_token.line
+			n.col_offset = scope.first_token.col
+		for n in pyast.walk(dowhilebody[2]):
+			n.lineno     = scope.last_token.line
+			n.col_offset = scope.last_token.col
+		#system_count_var_id = '$FORCNT#%d'%scope.__pushstack()
+		try:
+			## gotoで設定された場合
+			system_count_var_id = scope.__system_count_var_id
+		except AttributeError:
+			sc = scope
+			while isinstance(sc, _execscope):
+				if isinstance(sc, DefineFunctionStmt):
+					break
+				sc = sc.parent
+			else:
+				raise FatalError()
+			func = sc
+			try:
+				forno = func.__forcnt
+				func.__forcnt += 1
+			except AttributeError:
+				forno = 0
+				func.__forcnt = 1
+			system_count_var_id = scope.__system_count_var_id = '$DOWHILE#%d'%forno
+
+		dowhilebody[0].targets[0].id = system_count_var_id
+		dowhilebody[0].value.func = me.typecnverter.typecall(TD_INT, scope.first_token)
+			
+		
+		dowhilebody[1].test.test.value.id = system_count_var_id
+		dowhilebody[1].test.body          = test
+		dowhilebody[1].test.orelse.value.elts[0].args[0].id = system_count_var_id
+		
+		dowhilebody[2].targets[0].id = system_count_var_id
+		
+		dowhilebody[1].body   = []
+		dowhilebody[1].orelse = []
+		
+		#for s in stmt.body.statements:
+		dowhilebody[1].body   = me.compile(scope.body)			
+
+		
+		return dowhilebody
+	DoWhile.__compile = __compile
+	
+	def __compile(scope, me):	
+		_scope.__init(scope, me)
 		body = []
 		for s in scope.statements:
-			body += me.compile(s)
+			if s != scope.body:
+				body += me.compile(s)
 		
 		
 		forbody = pyast.parse(
@@ -1509,7 +1945,27 @@ del __COUNT__
 		for n in pyast.walk(forbody[2]):
 			n.lineno     = scope.last_token.line
 			n.col_offset = scope.last_token.col
-		system_count_var_id = '$FORCNT#%d'%scope.__pushstack()
+		#system_count_var_id = '$FORCNT#%d'%scope.__pushstack()
+		try:
+			## gotoで設定された場合
+			system_count_var_id = scope.__system_count_var_id
+		except AttributeError:
+			sc = scope
+			while isinstance(sc, _execscope):
+				if isinstance(sc, DefineFunctionStmt):
+					break
+				sc = sc.parent
+			else:
+				raise FatalError()
+			func = sc
+			try:
+				forno = func.__forcnt
+				func.__forcnt += 1
+			except AttributeError:
+				forno = 0
+				func.__forcnt = 1
+			system_count_var_id = scope.__system_count_var_id = '$FORCNT#%d'%forno
+
 		forbody[0].targets[0].id = system_count_var_id
 		forbody[0].value.func = me.typecnverter.typecall(TD_INT, scope.first_token)
 			
@@ -1554,18 +2010,20 @@ del __COUNT__
 	_declareVarStmt.__compile = __compile
 	
 	def __compile(stmt, me):
-		back = me.localvarbackup(stmt)
-		return back + me.globalvarconverter.compile(stmt)
+		if stmt.id in stmt.parent.__current_vars:
+			raise FatalError()
+		stmt.parent.__current_vars[stmt.id] = weakref.proxy(stmt)
+		return  me.globalvarconverter.compile(stmt)
 	LocalVarStmt.__compile = __compile
 	LocalStaticStmt.__compile = __compile
 	LocalExtern.__compile = __compile
 
 
-	def __compile(stmt, me):
-		return me.globalvarconverter.compile(stmt)
-	GlobalVarStmt.__compile = __compile
-	GlobalExtern.__compile = __compile
-	GlobalStaticStmt.__compile = __compile
+	#def __compile(stmt, me):
+	#	return me.globalvarconverter.compile(stmt)
+	#GlobalVarStmt.__compile = __compile
+	#GlobalExtern.__compile = __compile
+	#GlobalStaticStmt.__compile = __compile
 	
 	
 			
@@ -1590,32 +2048,32 @@ del __COUNT__
 	
 
 
-	def localvarbackup(me, stmt):
-		stmt.__stackno = stmt.parent.__pushstack()
-		#stmt.__uniquename = '$LOCAL$%d'%stmt.__stackno + '$' + stmt.id
-		if stmt.id in stmt.parent.__current_vars:
-			raise FatalError()
-		
-		#stmt.parent.__current[stmt.id] = stmt.__uniquename
-		
-		res = []
-		if stmt.id in stmt.parent.__external_vars:
-			stmt.parent.__current_vars[stmt.id] = '$ORVERLOADED#%d'%stmt.__stackno + '$' + stmt.id
-			back = pyast.Assign(
-						targets=[
-							pyast.Name(
-								id=stmt.parent.__current_vars[stmt.id],ctx=pyast.Store(),
-								lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
-						],
-						value=pyast.Name(
-								id=stmt.id,ctx=pyast.Load(),
-								lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
-						lineno=stmt.first_token.line, col_offset=stmt.first_token.col
-					)
-			res += [back]
-		else:
-			stmt.parent.__current_vars[stmt.id] = ''
-		return res
+	#def localvarbackup(me, stmt):
+	#	stmt.__stackno = stmt.parent.__pushstack()
+	#	#stmt.__uniquename = '$LOCAL$%d'%stmt.__stackno + '$' + stmt.id
+	#	if stmt.id in stmt.parent.__current_vars:
+	#		raise FatalError()
+	#	
+	#	#stmt.parent.__current[stmt.id] = stmt.__uniquename
+	#	
+	#	res = []
+	#	if stmt.id in stmt.parent.__external_vars:
+	#		stmt.parent.__current_vars[stmt.id] = '$ORVERLOADED#%d'%stmt.__stackno + '$' + stmt.id
+	#		back = pyast.Assign(
+	#					targets=[
+	#						pyast.Name(
+	#							id=stmt.parent.__current_vars[stmt.id],ctx=pyast.Store(),
+	#							lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
+	#					],
+	#					value=pyast.Name(
+	#							id=stmt.id,ctx=pyast.Load(),
+	#							lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
+	#					lineno=stmt.first_token.line, col_offset=stmt.first_token.col
+	#				)
+	#		res += [back]
+	#	else:
+	#		stmt.parent.__current_vars[stmt.id] = ''
+	#	return res
 
 	
 if __name__ == '__main__':
@@ -1691,6 +2149,7 @@ if __name__ == '__main__':
 	int test(int n)
 	{	
 		int S2 = 99;
+		int k;
 		if(1){
 			static int S2 = 3;
 			int k;
@@ -1710,11 +2169,63 @@ if __name__ == '__main__':
 	src = r"""
 	#include <stdio.h>
 	int test(int n)
-	{	
+	{	int i;
+		if(n == 0){
+			int i;
+			int j;
+			//@py: print('yes', j)
+			goto FIN;
+		}
 		printf("HelloWorld%d\n", n);
+		
+		if(n != 0){
+			int ss;
+			if(n!= 0){
+				int s;
+				static int ss = 0;
+				int n = 0;
+	FIN:
+				printf("Test%d\n", n);
+			}
+		}
 		return 0;
 	}
 	"""
+	
+	lno = inspect.currentframe().f_lineno+1
+	src = r"""
+	#include <stdio.h>
+int find(int A[5], int a, int size)
+{
+	for(int i=0; i<size; i++){
+		if(A[i] == a){
+			return i;
+		}
+		if(A[i] == -1)
+			goto FIN;
+	}
+FIN:
+	// @py: raise Exception()
+	return size;
+}
+
+int test(int n)
+{
+	int A[] = {0,1,-1,3,4};
+	int ret = find(A, n, 5);
+	return ret;
+}
+
+	"""
+	lno = inspect.currentframe().f_lineno+1
+	src = r"""
+	#include <stdio.h>
+int test(int n){
+	do{
+		n--;
+	}while(n>0);
+	return n;
+}"""
 
 	# 日本語
 	tok = Tokenizer()
@@ -1726,7 +2237,7 @@ if __name__ == '__main__':
 	next(p)
 	with warnings.catch_warnings(record = True) as rec:
 	#with warnings.catch_warnings():
-		warnings.filterwarnings('error')
+		warnings.filterwarnings('always')
 		try:
 			#warnings.filterwarnings('ignore', category=NoaffectStatement)
 			for t in tok:
@@ -1756,6 +2267,7 @@ if __name__ == '__main__':
 	import recompiler
 	p = recompiler.ReParser()
 	p.toline(ast[0], 0)
+	p.toline(ast[1], 0)
 	
 	print()
 	for s in compiler.globalvarconverter.staticvarcreatecode:
@@ -1765,14 +2277,24 @@ if __name__ == '__main__':
 	for s in compiler.conststring.statements:
 		p.toline(s, 0)
 	print()
+	
+	import goto
+	goto.set_goto.goto  = '$GOTO'
+	goto.set_goto.label = '$LABEL'
+	goto.set_goto.pushblock = '$PUSH'
+	goto.set_goto.popblock  = '$POP'
+	globals()['$SETGOTO'] = goto.set_goto
+	
 	code = compile(pyast.Module(body=ast), __file__, 'exec')
 	exec(code)
+	print(find)
 	
 	from ctypes import*
 	for key in compiler.typecnverter._uniquename:
 		print(key, compiler.typecnverter._uniquename[key])
 		name = compiler.typecnverter._uniquename[key]
 		globals()[name] = key
+		
 		
 	code = compile(pyast.Module(body=compiler.globalvarconverter.staticvarcreatecode), __file__, 'exec')
 	exec(code)
@@ -1794,11 +2316,12 @@ if __name__ == '__main__':
 	import copy
 	#globals()['$CONSTSTR#0'] = compiler.globalvarconverter._conststrings[0]
 	#import pdb;pdb.set_trace()
-	ret = test(c_int(8))
+	#test = goto.set_goto(test)
+	ret = test(c_int(1))
 	print(ret)
-	ret = test(c_int(8))
+	ret = test(c_int(2))
 	print(ret)
-	ret = test(c_int(8))
+	ret = test(c_int(3))
 	print(ret)
-	ret = test(c_int(8))
+	ret = test(c_int(4))
 	print(ret)

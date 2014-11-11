@@ -2010,6 +2010,9 @@ if __name__ == '__main__':
 	int test(int n)
 	{	
 		int S2 = 99;
+		for(int i=0; i<3; ++i){
+			if(n == 0) goto Fin;
+		}
 		if(1){
 			static int S2 = 3;
 			int k;
@@ -2019,7 +2022,7 @@ if __name__ == '__main__':
 			printf(s);
 			return k;
 		}
-		
+	Fin:
 		return 0;
 	}
 	

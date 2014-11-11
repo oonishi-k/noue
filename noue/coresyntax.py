@@ -1056,6 +1056,13 @@ class SyntaxCore:
 	ModuleFile.__getid = __getid
 	
 	
+	def addstatement(me, scope, stmt):
+		scope.statements += [stmt]
+		stmt.parent = weakref.proxy(scope)
+		scope.first_token = stmt.first_token
+		scope.last_token  = stmt.last_token
+	
+	
 	def typedef(me, scope, restype, name, first_token, last_token):
 		#if name == 'Py_ssize_t':
 		#	import pdb;pdb.set_trace()
@@ -1067,11 +1074,14 @@ class SyntaxCore:
 			
 		if name in scope.__ids:
 			warnings.warn(DefineDuplication(stmt, scope.__ids[name]))
-			scope.statements += [DummyStmt(first_token, last_token)]
+			#scope.statements += [DummyStmt(first_token, last_token)]
+			me.addstatement(scope, DummyStmt(first_token, last_token))
 			return
 		
-		stmt.parent = weakref.proxy(scope)
-		scope.statements += [stmt]
+		#stmt.parent = weakref.proxy(scope)
+		#scope.statements += [stmt]
+		
+		me.addstatement(scope, stmt)
 		scope.__ids[name] = stmt
 		
 		if is_usertype(restype) and strip_options(restype).id == '':
@@ -1092,8 +1102,10 @@ class SyntaxCore:
 		stmt = DefineMemberStmt(restype, name, bitsize, first_token, last_token)
 		scope.restype.fields += [(name,restype)]
 		
-		stmt.parent = weakref.proxy(scope)
-		scope.statements += [stmt]
+		#stmt.parent = weakref.proxy(scope)
+		#scope.statements += [stmt]
+		
+		me.addstatement(scope, stmt)
 		scope.__members[name] = stmt
 		
 		if is_usertype(restype) and strip_options(restype) == '':
@@ -1193,14 +1205,16 @@ class SyntaxCore:
 				pass
 			else:
 				warnings.warn(DefineDuplication(stmt, scope.__ids[name]))
-				scope.statements += [DummyStmt(first_token, last_token)]
+				#scope.statements += [DummyStmt(first_token, last_token)]
+				me.addstatement(scope, DummyStmt(first_token, last_token))
 				return
 		if init is not None and type(init) == list:
 			try:
 				stmt.restype,init = me.list_type_cherk(stmt.restype, init, stmt.first_token)
 			except NoueError as err:
 				warnings.warn(err)
-				scope.statements += [DummyStmt(first_token, last_token)]
+				#scope.statements += [DummyStmt(first_token, last_token)]
+				me.addstatement(scope, DummyStmt(first_token, last_token))
 				return scope.statements[-1]
 		elif init is not None:
 			#print(init, init.restype, init.first_token.line_string)
@@ -1220,12 +1234,14 @@ class SyntaxCore:
 						raise TypeError(stmt.first_token, msg)
 			except NoueError as err:
 				warnings.warn(err)
-				scope.statements += [DummyStmt(first_token, last_token)]
+				#scope.statements += [DummyStmt(first_token, last_token)]
+				me.addstatement(scope, DummyStmt(first_token, last_token))
 				return scope.statements[-1]
 			
 		stmt.initexp= init
-		stmt.parent = weakref.proxy(scope)
-		scope.statements += [stmt]
+		#stmt.parent = weakref.proxy(scope)
+		#scope.statements += [stmt]
+		me.addstatement(scope, stmt)
 		scope.__ids[name] = stmt
 		
 		return stmt
@@ -1251,11 +1267,13 @@ class SyntaxCore:
 						
 			if err:
 				warnings.warn(DefineDuplication(stmt, scope.__ids[name]))
-				scope.statements += [DummyStmt(first_token, last_token)]
+				#scope.statements += [DummyStmt(first_token, last_token)]
+				me.addstatement(scope, DummyStmt(first_token, last_token))
 				return stmt
 			
-		stmt.parent = weakref.proxy(scope)
-		scope.statements += [stmt]
+		#stmt.parent = weakref.proxy(scope)
+		#scope.statements += [stmt]
+		me.addstatement(scope, stmt)
 		scope.__ids[name] = stmt
 		
 		return stmt
@@ -1270,6 +1288,10 @@ class SyntaxCore:
 		stmt.__structs = {}
 		stmt.__unions = {}
 		stmt.__enums   = {}
+		
+		stmt.__gotos  = {}
+		stmt.__labels = {}
+		
 		if prototype.args is None:
 			raise FatalError()
 			
@@ -1293,23 +1315,28 @@ class SyntaxCore:
 				warnings.warn(DefineDuplication(stmt, scope.__ids[name]))
 				return stmt
 				
-		stmt.parent = weakref.proxy(scope)
-		scope.statements += [stmt]
+		#stmt.parent = weakref.proxy(scope)
+		#scope.statements += [stmt]
+		me.addstatement(scope, stmt)
 		scope.__ids[name] = stmt
 		
 		return stmt
 		
 	def exprstmt(me, scope, exp, last_token):
 		stmt = ExprStmt(exp, exp.first_token, last_token)
-		scope.statements += [stmt]
-		stmt.parent = weakref.proxy(scope)
+		#scope.statements += [stmt]
+		#stmt.parent = weakref.proxy(scope)
+		me.addstatement(scope, stmt)
 		return stmt
 			
 			
 	def ifscope(me, scope, first_token, last_token):
 		ifscope = If(first_token, last_token)
-		scope.statements += [ifscope]
-		ifscope.parent = weakref.proxy(scope)
+		#scope.statements += [ifscope]
+		#
+		#ifscope.parent = weakref.proxy(scope)
+		me.addstatement(scope, ifscope)
+		
 		ifscope.__ids = {}
 		ifscope.__structs = {}
 		ifscope.__unions  = {}
@@ -1326,8 +1353,10 @@ class SyntaxCore:
 		
 	def block(me, scope, first_token):
 		newscope = ExecBlock(first_token, first_token)
-		scope.statements += [newscope]
-		newscope.parent = weakref.proxy(scope)
+		#scope.statements += [newscope]
+		#newscope.parent = weakref.proxy(scope)
+		me.addstatement(scope, newscope)
+		
 		newscope.__ids = {}
 		newscope.__structs = {}
 		newscope.__unions  = {}
@@ -1336,8 +1365,10 @@ class SyntaxCore:
 		
 	def forscope(me, scope, first_token, last_token):
 		newscope = For(first_token, last_token)
-		scope.statements += [newscope]
-		newscope.parent = weakref.proxy(scope)
+		#scope.statements += [newscope]
+		#newscope.parent = weakref.proxy(scope)
+		me.addstatement(scope, newscope)
+		
 		newscope.__ids = {}
 		newscope.__structs = {}
 		newscope.__unions  = {}
@@ -1350,8 +1381,10 @@ class SyntaxCore:
 		
 	def whilescope(me, scope, first_token, last_token):
 		newscope = While(first_token, last_token)
-		scope.statements += [newscope]
-		newscope.parent = weakref.proxy(scope)
+		#scope.statements += [newscope]
+		#newscope.parent = weakref.proxy(scope)
+		me.addstatement(scope, newscope)
+		
 		newscope.__ids = {}
 		newscope.__structs = {}
 		newscope.__unions  = {}
@@ -1364,8 +1397,10 @@ class SyntaxCore:
 		
 	def dowhilescope(me, scope, first_token, last_token):
 		newscope = DoWhile(first_token, last_token)
-		scope.statements += [newscope]
-		newscope.parent = weakref.proxy(scope)
+		#scope.statements += [newscope]
+		#newscope.parent = weakref.proxy(scope)
+		me.addstatement(scope, newscope)
+		
 		newscope.__ids = {}
 		newscope.__structs = {}
 		newscope.__unions  = {}
@@ -1378,8 +1413,10 @@ class SyntaxCore:
 
 	def switchscope(me, scope, first_token, last_token):
 		newscope = Switch(first_token, last_token)
-		scope.statements += [newscope]
-		newscope.parent = weakref.proxy(scope)
+		#scope.statements += [newscope]
+		#newscope.parent = weakref.proxy(scope)
+		me.addstatement(scope, newscope)
+		
 		newscope.__ids = {}
 		newscope.__structs = {}
 		newscope.__unions  = {}
@@ -1406,8 +1443,9 @@ class SyntaxCore:
 			if strip_options(sc.prototype.restype) != TD_VOID:
 				msg = '値が必要です'
 				warnings.warn(SyntaxError(first_token, msg))
-				stmt = DummyStmt(first_token, last_token)
-				scope.statements += [stmt]
+				#stmt = DummyStmt(first_token, last_token)
+				#scope.statements += [stmt]
+				me.addstatement(scope, DummyStmt(first_token, last_token))
 				return stmt
 				
 		else:
@@ -1418,8 +1456,10 @@ class SyntaxCore:
 				return None
 
 		stmt = ReturnStmt(exp, first_token, last_token)
-		stmt.parent = weakref.proxy(scope)
-		scope.statements += [stmt]
+		#stmt.parent = weakref.proxy(scope)
+		#scope.statements += [stmt]
+		
+		me.addstatement(scope, stmt)
 		return stmt
 		
 	def modulefile(me, name):
@@ -1452,9 +1492,10 @@ class SyntaxCore:
 		stmt.__structs = scope.__structs
 		stmt.__unions  = scope.__unions
 		stmt.__enums   = scope.__enums
-		stmt.parent = weakref.proxy(scope)
-		
-		scope.statements += [stmt]
+		#stmt.parent = weakref.proxy(scope)
+		#
+		#scope.statements += [stmt]
+		me.addstatement(scope, stmt)
 		return stmt
 		
 		
@@ -1480,9 +1521,10 @@ class SyntaxCore:
 		stmt.__structs = scope.__structs
 		stmt.__enums   = scope.__enums
 		stmt.__unions   = scope.__unions
-		stmt.parent = weakref.proxy(scope)
-		
-		scope.statements += [stmt]
+		#stmt.parent = weakref.proxy(scope)
+		#
+		#scope.statements += [stmt]
+		me.addstatement(scope, stmt)
 		return stmt
 
 	def setunionerror(me, union):
@@ -1557,7 +1599,8 @@ class SyntaxCore:
 		if name in scope.__enums:
 			if scope.__enums[name].values is not None:
 				warnings.warn(DefineDuplication(stmt, scope.__enums[name]))
-				scope.statements += [DummyStmt(first_token, last_token)]
+				#scope.statements += [DummyStmt(first_token, last_token)]
+				me.addstatement(scope, DummyStmt(first_token, last_token))
 				return scope.__enums[name].restype
 			else:
 				stmt.restype = scope.__enums[name].restype
@@ -1585,7 +1628,9 @@ class SyntaxCore:
 		stmt.defined_at = first_token
 		if name:
 			scope.__enums[name] = stmt
-		scope.statements += [stmt]
+		#scope.statements += [stmt]
+		
+		me.addstatement(scope, stmt)
 		return stmt.restype
 		
 	def getenum(me, scope, id):
@@ -1612,7 +1657,8 @@ class SyntaxCore:
 
 	def breakstmt(me, scope, break_token, semicolon_token):
 		stmt = BreakStmt(break_token, semicolon_token)
-		stmt.parent = weakref.proxy(scope)
+		#stmt.parent = weakref.proxy(scope)
+		me.addstatement(scope, stmt)
 		stmt.escapescopes = []
 		sc = scope
 		stmt.escapescopes += [weakref.proxy(sc)]
@@ -1629,12 +1675,13 @@ class SyntaxCore:
 			sc = sc.parent
 		
 		#stmt.escapescopes += [weakref.proxy(sc)]
-		scope.statements += [stmt]
+		#scope.statements += [stmt]
 		return stmt
 		
 	def continuestmt(me, scope, break_token, semicolon_token):
 		stmt = ContinueStmt(break_token, semicolon_token)
-		stmt.parent = weakref.proxy(scope)
+		#stmt.parent = weakref.proxy(scope)
+		me.addstatement(scope, stmt)
 		stmt.escapescopes = []
 		sc = scope
 		stmt.escapescopes += [weakref.proxy(sc)]
@@ -1652,28 +1699,80 @@ class SyntaxCore:
 			
 		stmt.escapescopes.pop()
 		#stmt.escapescopes += [weakref.proxy(sc)]
-		scope.statements += [stmt]
+		#scope.statements += [stmt]
 		return stmt
 		
 	def gotostmt(me, scope, label, goto_token, colon_token):
-		stmt = GotoStmt(label, goto_token, colon_token)
-		stmt.parent = weakref.proxy(scope)
-		stmt.escapescopes = []
+		sc = scope
+		while isinstance(sc, _execscope):
+			if isinstance(sc, DefineFunctionStmt):
+				func = sc
+				break
+			sc = sc.parent
+		else:
+			msg = 'gotoは関数スコープの中でなくてはなりません。'
+			warnings.warn(SyntaxError(first_token, msg))
+			#scope.statements += [DummyStmt(first_token, last_token)]
+			me.addstatement(scope, DummyStmt(first_token, last_token))
+			return scope.statements[-1]
+			
 		
-		scope.statements += [stmt]
+			
+		stmt = GotoStmt(label, goto_token, colon_token)
+		me.addstatement(scope, stmt)
+		#stmt.parent = weakref.proxy(scope)
+		#
+		#scope.statements += [stmt]
+		
+		if stmt.label in func.__labels:
+			stmt.labelstmt = weakref.proxy(func.__labels[stmt.label])
+		else:
+			stmt.labelstmt = None
+			
+		l = func.__gotos.setdefault(stmt.label, [])
+		l += [stmt]
+		
 		return stmt
 
 	def labelstmt(me, scope, label_token, colon_token):
+		sc = scope
+		while isinstance(sc, _execscope):
+			if isinstance(sc, DefineFunctionStmt):
+				func = sc
+				break
+			sc = sc.parent
+		else:
+			msg = 'ラベルは関数スコープの中でなくてはなりません。'
+			warnings.warn(SyntaxError(first_token, msg))
+			#scope.statements += [DummyStmt(first_token, last_token)]
+			me.addstatement(scope, DummyStmt(first_token, last_token))
+			return scope.statements[-1]
+			
+		if label_token.value in func.__labels:
+			msg = 'ラベル%sが重複しています'%label_token.value
+			warnings.warn(SyntaxError(first_token, msg))
+			#scope.statements += [DummyStmt(first_token, last_token)]
+			me.addstatement(scope, DummyStmt(first_token, last_token))
+			return scope.statements[-1]
+			
 		stmt = LabelStmt(label_token, colon_token)
-		stmt.parent = weakref.proxy(scope)
+		#stmt.parent = weakref.proxy(scope)
 		stmt.escapescopes = []
 		
-		scope.statements += [stmt]
+		#scope.statements += [stmt]
+		me.addstatement(scope, stmt)
+		
+		func.__labels[stmt.label] = stmt
+		for goto in func.__gotos.setdefault(stmt.label, []):
+			goto.labelstmt = weakref.proxy(stmt)
+			
+
 		return stmt
 		
 	def defaultstmt(me, scope, break_token, colon_token):
 		stmt = DefaultStmt(break_token, colon_token)
-		stmt.parent = weakref.proxy(scope)
+		#stmt.parent = weakref.proxy(scope)
+		me.addstatement(scope, stmt)
 		stmt.escapescopes = []
 		sc = scope
 		stmt.escapescopes += [weakref.proxy(sc)]
@@ -1690,7 +1789,7 @@ class SyntaxCore:
 			sc = sc.parent
 			
 		#stmt.escapescopes += [weakref.proxy(sc)]
-		scope.statements += [stmt]
+		#scope.statements += [stmt]
 		return stmt
 
 	def casestmt(me, scope, exp, break_token, colon_token):
@@ -1699,11 +1798,13 @@ class SyntaxCore:
 			n = me.eval_constinteger(exp)
 		except NotConstInteger as err:
 			warnings.warn(err)	
-			scope.statements += [DummyStmt(first_token, last_token)]
+			#scope.statements += [DummyStmt(first_token, last_token)]
+			me.addstatement(scope, DummyStmt(first_token, last_token))
 			return
 			
 		stmt = CaseStmt(n, break_token, colon_token)
-		stmt.parent = weakref.proxy(scope)
+		#stmt.parent = weakref.proxy(scope)
+		me.addstatement(scope, stmt)
 		stmt.escapescopes = []
 		sc = scope
 		stmt.escapescopes += [weakref.proxy(sc)]
@@ -1720,7 +1821,7 @@ class SyntaxCore:
 			sc = sc.parent
 			
 		#stmt.escapescopes += [weakref.proxy(sc)]
-		scope.statements += [stmt]
+		#scope.statements += [stmt]
 		return stmt
 
 	def comment(me, scope, token):
@@ -1730,8 +1831,9 @@ class SyntaxCore:
 			last = copy.deepcopy(token)
 			last.line += len(token.value.splitlines())-1
 		stmt = CommentStmt(token)
-		stmt.parent = weakref.proxy(scope)
-		scope.statements += [stmt]
+		#stmt.parent = weakref.proxy(scope)
+		#scope.statements += [stmt]
+		me.addstatement(scope, stmt)
 			
 		return stmt
 		

@@ -46,7 +46,7 @@ class CCompiler:
 		
 		preprocessor = deepcopy(me.preprocessor)
 		
-		tok = preprocessor.proccess(src, __file__, lineno)
+		tok = preprocessor.proccess(src, filename, lineno)
 		
 		next(p)
 		with warnings.catch_warnings(record = True) as rec:
