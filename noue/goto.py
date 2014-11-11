@@ -1,7 +1,7 @@
-# coding: cp932
+# coding: utf8
 
-## pythonƒoƒCƒgƒR[ƒh‚ð‘‚«Š·‚¦‚ÄAgoto‚ðŽÀŒ»‚·‚é
-## POP_BLOCK‚Æ‚©‚Ç‚¤‚È‚é‚ñ‚¾‚ë‚¤‚©
+## pythonãƒã‚¤ãƒˆã‚³ãƒ¼ãƒ‰ã‚’æ›¸ãæ›ãˆã¦ã€gotoã‚’å®Ÿç¾ã™ã‚‹
+## POP_BLOCKã¨ã‹ã©ã†ãªã‚‹ã‚“ã ã‚ã†ã‹
 
 from struct import pack as tobin
 import dis
