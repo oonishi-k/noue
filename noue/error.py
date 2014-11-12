@@ -85,6 +85,7 @@ class ParseError(CompileError):
 		
 class ParseUnexpectedToken(ParseError):
 	def __init__(me, tok):
+		#import pdb;pdb.set_trace()
 		msg = '"%s"は不正です。'%tok.value
 		ParseError.__init__(me, tok, msg)
 

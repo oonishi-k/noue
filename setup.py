@@ -5,6 +5,7 @@ from distutils.core import setup
 setup(
     name = "noue",
     packages = ["noue"],
+	package_data={'noue': ['include/*.*']},
     version = "0.0.0",
     description = "Python C-language Emulator",
     author = "Kenji Ohnishi",

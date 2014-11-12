@@ -43,6 +43,13 @@ class ReParser:
 	pyast.Return.__toline = __toline
 	
 	def __toline(ast, me, depth):
+		print(ast.lineno, '\t'*depth + 'raise '+ (me.tosource(ast.exc) if ast.exc else ''))
+		return
+		
+	pyast.Raise.__toline = __toline
+
+	
+	def __toline(ast, me, depth):
 		target = ' = '.join([me.tosource(t) for t in ast.targets])
 		value  = me.tosource(ast.value)
 		print(ast.lineno, '\t'*depth + target + ' = ' + value)

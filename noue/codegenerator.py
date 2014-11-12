@@ -483,7 +483,12 @@ class ExpressionConverter:
 	PostIncl.__compile = __compile
 	
 	def __compile(exp, me):
-		ass = Assign(exp.value, BinOp(exp.value.restype, exp.op[:-1], exp.value, ConstInteger(TD_INT, 1, exp.value.first_token)))
+		if is_numeric(exp.value.restype):
+			incl = BinOp(exp.value.restype, exp.op[:-1], exp.value, ConstInteger(TD_INT, 1, exp.value.first_token))
+		else:
+			incl = PtrAdd(exp.op[:1], exp.value, ConstInteger(TD_INT, 1, exp.value.first_token))
+
+		ass = Assign(exp.value, incl)
 		return me.compile(ass)
 	PreIncl.__compile = __compile
 		
@@ -666,6 +671,13 @@ class ExpressionConverter:
 					lineno = exp.first_token.line,col_offset=exp.first_token.col)
 					
 	ConstInteger.__compile = __compile
+	
+	def __compile(exp, me):
+		return pyast.Num(
+					n = ord(exp.value),
+					lineno = exp.first_token.line,col_offset=exp.first_token.col)
+					
+	ConstChar.__compile = __compile
 	
 	def __compile(exp, me):
 		return pyast.Num(
@@ -919,6 +931,30 @@ class ExpressionConverter:
 				)
 		return ast
 	PtrAdd.__compile = __compile
+	
+	def __compile(exp, me):
+		leftast  = me.compile(me.toright(exp.left))
+		rightast = me.compile(me.toright(exp.right))
+		
+		leftast = pyast.BinOp(
+					left=leftast,
+					op=pyast.Sub(),
+					right=rightast,
+					lineno = exp.first_token.line,
+					col_offset=exp.first_token.col
+				)
+		
+		size = me.typeconverter.sizeof(target_type(exp.left.restype))
+		ast = pyast.BinOp(
+					left=leftast,
+					op=pyast.FloorDiv(),
+					right=pyast.Num(n=size, lineno = exp.first_token.line,col_offset=exp.first_token.col),
+					lineno = exp.first_token.line,
+					col_offset=exp.first_token.col
+				)
+		
+		return ast
+	PtrSub.__compile = __compile
 	
 	
 	def __compile(exp, me):
@@ -1235,6 +1271,35 @@ class TypeConverter:
 				 )
 	
 	td_primitive.__toright = __toright
+	
+	def __toright(td, me, ast):
+		val = pyast.Attribute(
+					value=ast,
+					attr='value',
+					ctx=pyast.Load(),
+					lineno=ast.lineno,
+					col_offset=ast.col_offset
+				 )
+		ast= pyast.Call(
+					func=pyast.Name(
+						id='ord', ctx=pyast.Load(),
+						lineno=ast.lineno,
+						col_offset=ast.col_offset),
+					args=[val],
+					keywords=[],
+					starargs=None,
+					kwargs=None,
+					lineno=ast.lineno,
+					col_offset=ast.col_offset)
+		return ast
+	
+	td_char.__toright = __toright
+
+	
+	
+	def __toright(td, me, ast):
+		return me.toright(td._type, ast)
+	td_const.__toright = __toright
 	
 	
 	
@@ -2245,7 +2310,7 @@ int test(int n){
 					#print(t)
 					continue
 				p.send(t)
-			p.send([END()])
+			p.send([END(__file__)])
 		except StopIteration as stop:
 			module = stop.args[0]
 	for w in rec:

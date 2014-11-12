@@ -64,12 +64,15 @@ class td_unsigned(td_integer):
 		
 class td_real(td_primitive):   pass
 
+class td_char(td_integer):
+	pass
+
 
 ## standard integer type
 TD_INT  = td_integer('int')
 TD_LONG = td_integer('long')
 TD_SHORT= td_integer('short')
-TD_CHAR = td_integer('char')
+TD_CHAR = td_char('char')
 
 TD_UINT   = td_unsigned('unsigned int')
 TD_ULONG  = td_unsigned('unsigned long')

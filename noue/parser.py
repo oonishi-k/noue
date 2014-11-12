@@ -71,8 +71,16 @@ class Parser:
 				toks = (yield)
 				#if toks is None:
 				#	break
-				me.tokens += toks
+				new = []
+				for t in toks:
+					if t.type == 'MC':
+						warnings.warn(me.InsertComment(t))
+					else:
+						new += [t]
+				#me.tokens += toks
+				me.tokens += new
 			except NoueException as ins:
+				import pdb;pdb.set_trace()
 				warnings.warn(ins)
 				pass
 				
@@ -1154,9 +1162,9 @@ class Parser:
 		for w in rec:
 			if isinstance(w.message, NoueError):
 				funcscope.haserror = True
-				funcscope.errors += [w]
+				funcscope.errors += [w.message]
 			elif isinstance(w.message, NoueWarning):
-				funcscope.errors += [w]
+				funcscope.errors += [w.message]
 			#print('from funcdef', w)
 			warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
 		
@@ -1168,19 +1176,30 @@ class Parser:
 				
 	def parse_funcbody(me, scope):
 		if me.cur.type != '{': raise FatalError()
+		compileerrors = []
+		
 		with warnings.catch_warnings(record=True) as rec:
 			warnings.filterwarnings('always')
 			yield from me.seek()
+			
+			for w in rec:
+				if isinstance(w.message, me.InsertComment):
+					me.compiler.comment(scope, w.message.token)
+				else:
+					#import pdb;pdb.set_trace()
+					compileerrors += [w]
+			rec.clear()
+					
 			while me.cur.type != '}':
 				yield from me.parse_funcstmt(scope)
 			yield from me.seek()
-		for w in rec:
-			#print('yes')
-			#import pdb;pdb.set_trace()
-			#print(w.message.message())
-			#print('from funcbody', w)
-			#import pdb;pdb.set_trace()
-			warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+		for w in compileerrors+rec:
+			if isinstance(w.message, me.InsertComment):
+				#me.compiler.comment(scope, w.message.token)
+				pass
+			else:
+				#import pdb;pdb.set_trace()
+				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
 			
 	def parse_initlist(me, scope):
 		
@@ -1815,7 +1834,10 @@ class Parser:
 			
 	def parse_funcstmt(me, scope):
 		with warnings.catch_warnings(record=True) as rec:
+			#warnings.filterwarnings('error', category=NoueError)
 			warnings.filterwarnings('always')
+			
+					
 			first_token = me.cur
 			if me.cur.value == 'for':
 				yield from me.parse_for(scope)
@@ -1843,8 +1865,36 @@ class Parser:
 				
 				
 	def parse_global(me, name=''):
+		#compileerrors = []
 		me.module = me.compiler.modulefile(name)
-		yield from me.load()
+		with warnings.catch_warnings(record=True) as rec:
+			warnings.filterwarnings('always')
+			yield from me.load()
+			#if me.cur.type == 'START':
+			#	yield from me.seek()
+			#else:
+			#	msg = 'パース開始時には"START"トークンが必要です'
+			#	warnings.warn(SyntaxError(me.cur, msg))
+			#print('glob', rec)
+		for w in rec:
+			#print(w)
+			if isinstance(w.message, me.InsertComment):
+				me.compiler.comment(me.module, w.message.token)
+				continue
+			if isinstance(w.message, NoueError):
+				me.module.haserror = True
+				me.module.errors += [w.message]
+			elif isinstance(w.message, NoueWarning):
+				me.module.errors += [w.message]
+			warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+
+			
+		#for w in rec:
+		#	if isinstance(w.message, me.InsertComment):
+		#		me.compiler.comment(me.module, w.message.token)
+		#	else:
+		#		compileerrors += [w]
+		
 		while 1:
 			with warnings.catch_warnings(record=True) as rec:
 				warnings.filterwarnings('always')
@@ -1871,16 +1921,25 @@ class Parser:
 				except NoueError as err:
 					print(err, err.pos)
 					raise
-				for w in rec:					
-					if isinstance(w.message, me.InsertComment):
-						me.compiler.comment(me.module, w.message.token)
-			for w in rec:					
+					
+				#for w in rec:					
+				#	if isinstance(w.message, me.InsertComment):
+				#		me.compiler.comment(me.module, w.message.token)
+				#	else:
+				#		compileerrors += [w]
+				#rec.clear()
+			#for w in compileerrors:					
+			for w in rec:
+				if isinstance(w.message, me.InsertComment):
+					me.compiler.comment(me.module, w.message.token)
+					continue
 				if isinstance(w.message, NoueError):
 					me.module.haserror = True
-					me.module.errors += [w]
+					me.module.errors += [w.message]
 				elif isinstance(w.message, NoueWarning):
-					me.module.errors += [w]
-				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+					me.module.errors += [w.message]
+				else:
+					warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
 				#print('from global', w)
 		return me.module
 
@@ -2051,7 +2110,7 @@ if __name__ == '__main__':
 				#with warnings.catch_warnings():
 					#warnings.filterwarnings('ignore')
 				p.send(t)
-			p.send([END()])
+			p.send([END(__file__)])
 		except StopIteration as stop:
 			module = stop.args[0]
 			
@@ -2060,7 +2119,7 @@ if __name__ == '__main__':
 	#for w in rec:
 	#	print(w.message.message())
 	for e in parser.module.errors:
-		print(e.message.message())
+		print(e.message())
 		
 	for s in parser.module.statements:
 		print(s.prototype.restype)

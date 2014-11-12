@@ -545,17 +545,29 @@ class SyntaxCore:
 			if ltype == TD_DOUBLE:
 				pass
 			elif ltype == TD_FLOAT and rtype == TD_DOUBLE:
-				warnings.warn(wan)
+				if isinstance(valueexp, ConstInteger) and valueexp.value == 0:
+					pass
+				else:
+					warnings.warn(wan)
 				return True
 			elif me.size_caculator.sizeof(ltype) < me.size_caculator.sizeof(rtype):
 				if rtype != TD_INT:
-					warnings.warn(wan)
+					if isinstance(valueexp, ConstInteger) and valueexp.value == 0:
+						pass
+					else:
+						warnings.warn(wan)
 					return True
 			elif is_unsigned(ltype) and not is_unsigned(rtype):
-				warnings.warn(wan)
+				if isinstance(valueexp, ConstInteger) and valueexp.value == 0:
+					pass
+				else:
+					warnings.warn(wan)
 				return True
 			elif not is_unsigned(ltype) and is_unsigned(rtype) and me.size_caculator.sizeof(ltype) == me.size_caculator.sizeof(rtype):
-				warnings.warn(wan)
+				if isinstance(valueexp, ConstInteger) and valueexp.value == 0:
+					pass
+				else:
+					warnings.warn(wan)
 				return True
 		elif is_pointer(ltype) and is_pointer(rtype):
 			if ltype == TD_VOIDP or rtype == TD_VOIDP:
@@ -827,7 +839,7 @@ class SyntaxCore:
 			return me.errorexp(op_token)
 			
 		if not is_integer(index.restype):
-			import pdb;pdb.set_trace()
+			#import pdb;pdb.set_trace()
 			msg = '[]の中に整数型が必要です'
 			warnings.warn(TypeError(index.first_token, msg))
 			return me.errorexp(owner.first_token)

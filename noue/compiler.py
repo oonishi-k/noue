@@ -33,6 +33,24 @@ class CCompiler:
 	
 	def compile_source(me, src, filename, lineno, encoding=None):
 		module = me.parse(src, filename, lineno, encoding or me.encoding)
+		#with warnings.catch_warnings():
+		#	warnings.filterwarnings('error')
+		#	ast = me.compiler.dump(module)
+		#
+		#import noue.recompiler
+		#re = noue.recompiler.ReParser()
+		#for a in ast:
+		#	re.toline(a, 0)
+		#	print()
+		#
+		#print()
+		#for s in me.compiler.globalvarconverter.staticvarcreatecode:
+		#	re.toline(s, 0)
+		#for s in me.compiler.globalvarconverter.staticvarinitcode:
+		#	re.toline(s, 0)
+		#for s in me.compiler.conststring.statements:
+		#	re.toline(s, 0)
+
 		
 		compiler = deepcopy(me.compiler)
 		mod = compiler.compile(module)	
@@ -49,22 +67,29 @@ class CCompiler:
 		tok = preprocessor.proccess(src, filename, lineno)
 		
 		next(p)
-		with warnings.catch_warnings(record = True) as rec:
-		#with warnings.catch_warnings():
-			warnings.filterwarnings('always')
+		#with warnings.catch_warnings(record = True) as rec:
+		##with warnings.catch_warnings():
+		#	warnings.filterwarnings('always')
+		if 1:
 			try:
-				#warnings.filterwarnings('ignore', category=NoaffectStatement)
+				#p.send([START(filename)])
+				##warnings.filterwarnings('ignore', category=NoaffectStatement)
 				for t in tok:
-					if t and t[0].type == 'MC':
-						p.throw(parser.InsertComment(t[0]))
-						continue
+				#	if t and t[0].type == 'MC':
+				#		#import pdb;pdb.set_trace()
+				#		p.throw(parser.InsertComment(t[0]))
+				#		continue
 					p.send(t)
-				p.send([END()])
+					#print('com', rec)
+				p.send([END(filename)])
 			except StopIteration as stop:
 				module = stop.args[0]
-
-		for w in rec:
-			print(w.message.message())
+			
+		#for w in rec:
+		#	print(w.message.message())
+		for e in module.errors:
+			print(e.message())
+			print()
 
 		return module
 		

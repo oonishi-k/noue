@@ -43,9 +43,16 @@ class ID(CodeFragment):
 		me.value = value
 
 ## ファイル終端
+class START(CodeFragment):
+	def __init__(me, file):
+		CodeFragment.__init__(me, 'START', file, -1, -1, '$FileStart("%s")'%file)
+		me.value = me.line_string
+		
+## ファイル終端
 class END(CodeFragment):
-	def __init__(me):
-		CodeFragment.__init__(me, 'END', '', -1, -1, '$FileEnd')
+	def __init__(me, file):
+		CodeFragment.__init__(me, 'END', file, -1, -1, '$FileEnd("%s")'%file)
+		me.value = me.line_string
 
 		
 
