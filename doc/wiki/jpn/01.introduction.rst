@@ -35,7 +35,7 @@ Introduction
     import ctypes
     test.printf = ctypes.cdll.msvcrt.printf
     
-    test.times()
+    test.hello()
 	
 	
 | 出力:
