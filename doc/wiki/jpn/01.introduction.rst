@@ -3,19 +3,25 @@ Introduction
 =================
 [`English <../eng/01.introduction.rst>`_]
 
+はじめに
+-------------
+
 | 「Noue」はPython用のC言語エミュレーターです。
 | C言語ソースコードをPythonコードに変換して実行します。
-|
+| C言語ソースのユニットテストを、Python上で行うためのツールとして
+| 開発しています。
+| 
+
+
+
 | test.c:
 .. code:: c
 
-    int times(int a, int b)
+    #include<stdio.h>
+    
+    void hello()
     {
-        int ret = 0;
-        for(int i=0; i<b; ++i){
-            ret += a;
-        }
-        return ret;
+        printf("HelloWorld\n");
     }
 
 
@@ -23,14 +29,22 @@ Introduction
 .. code:: python
 
     from noue.compiler import CCompiler
-    from ctypes import*
     
     test = CCompiler().compile('test.c')
-    print(test.times(c_int(3), c_int(4)))
+    
+    import ctypes
+    test.printf = ctypes.cdll.msvcrt.printf
+    
+    test.times()
 	
 	
 | 出力:
 .. code:: console
 
-    >12
+    >HelloWorld
+
+
+| C言語ソースをピュアPythonコードに変換して実行するので
+| Pythonの標準ライブラリであるpdbが使用できます。
+| 
 
