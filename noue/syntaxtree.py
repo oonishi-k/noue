@@ -111,6 +111,8 @@ class td_leftvalue(_type_descriptor):
 
 	@property
 	def name(me):
+		if type(me._type) == tuple:
+			import pdb;pdb.set_trace()
 		return me._type.name+'&'
 
 class td_const(_type_descriptor):
@@ -199,6 +201,10 @@ def sizedarray_type(typ, size):
 		typ = right_type(typ)
 	if is_unsizedarray(typ):
 		raise FatalError()
+	
+	if size <= 0:
+		raise FatalError()
+	
 	if (typ,size) not in sizedarray_type.memo:
 		sizedarray_type.memo[(typ,size)] = td_sized_array(typ, size)
 	return sizedarray_type.memo[(typ,size)]
@@ -431,6 +437,7 @@ class error_func(func_prototype_descriptor):
 	def __init__(me):
 		me.args = None
 		me.restype = TD_ERROR
+		me.has_vararg = False
 		
 def is_errorfunc(proto):
 	if not isinstance(proto, func_prototype_descriptor):
@@ -799,6 +806,7 @@ class _statement(_node):
 		me._first_token = first_token
 		me._last_token  = last_token or first_token
 		me.parent = None
+		me.haserror = False
 		#if last_token: me.UpdateRange(last_token)
 
 class _simple_stmt(_statement):
@@ -810,7 +818,7 @@ class CommentStmt(_simple_stmt):
 		me.value = token.value
 
 class DummyStmt(_simple_stmt):
-	def __init__(me):pass
+	pass
 	
 	
 
@@ -895,7 +903,6 @@ class _scope(_statement):
 	def __init__(me, first_token, last_token):
 		_statement.__init__(me, first_token, last_token)
 		me.statements    = []
-		me.haserror = False
 
 
 class _execscope(_scope):
@@ -1094,5 +1101,3 @@ class ModuleFile(_scope):
 		me.parent = None
 		me.statements = []
 	
-		me.haserror = False
-		me.errors = []

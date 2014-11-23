@@ -18,15 +18,29 @@ import ctypes as pyct
 import ast    as pyast
 import types
 
+def genuniqueid(stnode):
+	seed  = tuple(map(ord, stnode.first_token.file))
+	seed += (stnode.first_token.line, stnode.first_token.col)
+	seed += tuple(map(ord, stnode.last_token.file))
+	seed += (stnode.last_token.line, stnode.last_token.col)
+	return hex(hash(seed) % (1<<64))[2:].upper()
+	
+def classalias(name, mro, attrs):
+	for a,v in attrs.items():
+		if a.startswith('__'): continue
+		setattr(mro[0], a, v)
+	return mro[0]
+
 class ConstStringSolution:
 	def __init__(me, typeconverter):
 		me._conststrings = []
 		me.typeconverter = typeconverter
+
 	@property
 	def statements(me):
 		num = len(me._conststrings)
 		func = pyast.BinOp(
-					left=pyast.Name(id='c_char_p',ctx=pyast.Load()),
+					left=pyast.Name(id='$T$c_char_p',ctx=pyast.Load()),
 					op=pyast.Mult(),
 					right=pyast.Num(n=num))
 		value = pyast.Call(func=func,
@@ -154,7 +168,7 @@ class GlobalVarConverter:
 							lineno = stmt.first_token.line,col_offset=stmt.first_token.col)
 		ptr = copy = pyast.Call(
 						func=pyast.Name(
-									id='pointer',ctx=pyast.Load(),
+									id='$pointer',ctx=pyast.Load(),
 									lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
 						args=[pyast.Name(
 									id=id,ctx=pyast.Load(),
@@ -188,16 +202,23 @@ class GlobalVarConverter:
 		return stmt.__getuniqueid(me)
 		
 	def __getuniqueid(stmt, me):
-		return '$S#%d$'%stmt.__uniqueidnum + stmt.id
+		return '$S$%s$'%stmt.id + genuniqueid(stmt)
 	LocalStaticStmt.__getuniqueid = __getuniqueid
 	
 	def __getuniqueid(stmt, me):
-		return '$L#%d$'%stmt.__uniqueidnum + stmt.id
+		return '$S$%s$'%stmt.id + genuniqueid(stmt)
+	GlobalStaticStmt.__getuniqueid = __getuniqueid
+	
+	def __getuniqueid(stmt, me):
+		return '$L$%s$'%stmt.id + genuniqueid(stmt)
 	LocalVarStmt.__getuniqueid = __getuniqueid
+	
 	
 
 	
 	def compile(me, stmt):
+		if stmt.haserror:
+			return []
 		return stmt.__compile(me)
 		
 	def __compile(stmt, me):
@@ -250,6 +271,12 @@ class GlobalVarConverter:
 		return [ast]
 	
 	LocalStaticStmt.__compile = __compile	
+	
+	def __compile(stmt, me):
+		id = stmt.id
+		me.globalinit(stmt, id)
+
+		return []
 	GlobalStaticStmt.__compile = __compile
 	
 	def rollbackname(me, stmt, token):
@@ -281,36 +308,6 @@ class GlobalVarConverter:
 			raise FatalError()
 
 	
-	## コンパイルに先立ち、各変数について、ユニークIDをふる
-	def setuniequeid(me, stmt):
-		stmt.__setuniequeid(me)
-		
-	def __setuniequeid(scope, me):
-		for s in scope.statements:
-			me.setuniequeid(s)
-	_execscope.__setuniequeid = __setuniequeid	
-	
-	def __setuniequeid(scope, me):
-		scope.__varcnt = 0
-		for s in scope.statements:
-			me.setuniequeid(s)
-			
-	DefineFunctionStmt.__setuniequeid = __setuniequeid
-			
-	def __setuniequeid(scope, me):
-		return
-	_statement.__setuniequeid = __setuniequeid
-	
-	def __setuniequeid(stmt, me):
-		func = me.getfuncscope(stmt)
-		stmt.__uniqueidnum = func.__varcnt
-		func.__varcnt += 1
-		
-		return
-	LocalVarStmt.__setuniequeid    = __setuniequeid
-	LocalStaticStmt.__setuniequeid    = __setuniequeid
-	#LocalExternStmt.__setuniequeid    = __setuniequeid
-
 
 
 
@@ -334,7 +331,7 @@ class ExpressionConverter:
 			size = me.typeconverter.sizeof(restype)
 			value = value=pyast.Call(
 								func=pyast.Name(
-									id='c_buffer',
+									id='$c_buffer',
 									ctx=pyast.Load(),
 									lineno=token.line,col_offset=token.col
 								),
@@ -454,6 +451,8 @@ class ExpressionConverter:
 		
 	def __compile(exp, me):
 		print(exp, exp.first_token.file, exp.first_token)
+		print(exp.first_token.line_string)
+		import pdb;pdb.set_trace()
 		raise FatalError()
 	_expression.__compile = __compile
 	
@@ -491,11 +490,34 @@ class ExpressionConverter:
 		ass = Assign(exp.value, incl)
 		return me.compile(ass)
 	PreIncl.__compile = __compile
+	
+	def __compile(exp, me):
+		value=pyast.Attribute(
+			 value=pyast.Name(id='$G',
+					ctx=pyast.Load(),
+					lineno=exp.first_token.line, col_offset=exp.first_token.col),
+			 attr=exp.id,
+			 ctx=pyast.Load(),
+			 lineno=exp.first_token.line, col_offset=exp.first_token.col)
+			 
+		func = me.typeconverter.typecall(exp.restype, exp.first_token)
 		
+		return pyast.Call(
+				func=func,
+				args=[value],keywords=[],
+				starargs=None,
+				kwargs=None,
+				lineno=exp.first_token.line, col_offset=exp.first_token.col
+			)
+		
+		
+	ConstFunctionAddress.__compile = __compile
+	
 	def __compile(exp, me):
 		#if exp.func.id == 'find':
 		#	print(exp.args)
 		#	raise
+		#print(exp.func, exp.func.id)
 		func=pyast.Attribute(
 			 value=pyast.Name(id='$G',
 					ctx=pyast.Load(),
@@ -714,7 +736,7 @@ class ExpressionConverter:
 		)
 		
 		cast = pyast.Call(
-				 func=pyast.Name(id='cast',#me.pyfunc('addressof'),
+				 func=pyast.Name(id='$cast',#me.pyfunc('addressof'),
 									ctx=pyast.Load(),
 									lineno = exp.first_token.line,col_offset=exp.first_token.col),
 				 args=[copy, me.typeconverter.typecall(TD_VOIDP, exp.first_token)],
@@ -819,7 +841,7 @@ class ExpressionConverter:
 	def __compile(exp, me):
 		value  = me.compile(exp.value)
 		ast = pyast.Call(
-				 func=pyast.Name(id='addressof',#me.pyfunc('addressof'),
+				 func=pyast.Name(id='$addressof',#me.pyfunc('addressof'),
 									ctx=pyast.Load(),
 									lineno = exp.first_token.line,col_offset=exp.first_token.col),
 				 args=[value],
@@ -972,8 +994,23 @@ class ExpressionConverter:
 
 class TypeConverter:
 	def __init__(me):
-		me._cache = {}
-		me._uniquename = {}
+		me.usertypes = []
+		me.primitives = [
+			TD_INT,  TD_LONG,  TD_CHAR,  TD_SHORT,  TD_LONGLONG, 
+			TD_UINT, TD_ULONG, TD_UCHAR, TD_USHORT, TD_ULONGLONG, 
+			TD_SIZE_T, TD_WCHAR, TD_DOUBLE, TD_FLOAT,
+			pointer_type(TD_CHAR), pointer_type(const_type(TD_CHAR)),
+			TD_VOIDP, TD_CVOIDP
+		]
+		
+	def setnames(me, dict):
+		for p in me.primitives:
+			if p == pointer_type(const_type(TD_VOID)):
+				import pdb;pdb.set_trace()
+			dict[p.__typename] = me.cnvtype(p)
+			
+		for t in me.usertypes:
+			dict[t.__typename] = me.cnvtype(t)
 		
 	def sizeof(me, restype):
 		if is_errortype(restype): return 0
@@ -1006,6 +1043,7 @@ class TypeConverter:
 		#return td._type.__toright(ast)
 		return ast
 	td_sized_array.__fromright = __fromright
+	td_unsized_array.__fromright = __fromright
 	
 	def __fromright(td, me, value, token):
 		value = me.fromright(TD_SIZE_T, value, token)
@@ -1022,6 +1060,7 @@ class TypeConverter:
 		#return td._type.__toright(ast)
 		return ast
 	td_pointer.__fromright = __fromright
+	td_funcptr.__fromright = __fromright
 		
 	def typecall(me, restype, token):
 		try:
@@ -1033,29 +1072,53 @@ class TypeConverter:
 		except AttributeError:
 			pass
 		return restype.__typecall(me, token)
-	pointer_type(TD_CHAR).__typename = 'c_char_p'
-	pointer_type(const_type(TD_CHAR)).__typename = 'c_char_p'
-	TD_VOIDP.__typename = 'c_voidp'
-	TD_CVOIDP.__typename = 'c_voidp'
+	pointer_type(TD_CHAR).__typename = '$T$c_char_p'
+	pointer_type(const_type(TD_CHAR)).__typename = '$T$c_char_p'
+	TD_VOIDP.__typename = '$T$c_voidp'
+	TD_CVOIDP.__typename = '$T$c_voidp'
 	
 	def __typecall(restype, me, token):
-		return restype._type.__typecall(me, token)
+		return me.typecall(restype._type)
 	td_const.__typecall = __typecall
 		
 	def __typecall(restype, me, token):
-		name = me.sysname(restype)
+		try:
+			name = restype.__typename
+		except AttributeError:
+			#restype.__typename = genuniqueid(_statement(token, token))
+			restype.__typename = '$T$%s$%s'%(restype.name, genuniqueid(_statement(token, token)))
+			name = restype.__typename
+			me.usertypes += [restype]
 		return pyast.Name(id=name,
 						ctx=pyast.Load(),
 						lineno = token.line,col_offset=token.col
 			)
-	td_primitive.__typecall = __typecall
 	td_struct.__typecall = __typecall
+	
+	def __typecall(restype, me, token):
+			res  = me.typecall(restype.prototype.restype, token)
+			args = [me.typecall(arg.restype, token) for arg in restype.prototype.args]
+			return pyast.Call(
+			func=pyast.Name(id='$CFUNCTYPE',
+							ctx=pyast.Load(),
+							lineno=token.line,
+							col_offset=token.col),
+			args=[res] + args,
+			keywords=[],
+			starargs=None,
+			kwargs=None,
+			lineno=token.line,
+			col_offset=token.col)
+
+		
+	td_funcptr.__typecall = __typecall
+	
 			
 	def __typecall(restype, me, token):
 		nameast = me.typecall(restype._type, token)
 		return pyast.Call(
 				func=pyast.Name(
-					 id='POINTER',
+					 id='$POINTER',
 					 ctx=pyast.Load(),
 					lineno=token.line,col_offset=token.col),
 				args=[
@@ -1076,21 +1139,50 @@ class TypeConverter:
 				lineno=token.line,col_offset=token.col)
 
 	td_sized_array.__typecall = __typecall
+	
+	def __typecall(restype, me, token):
+		return pyast.BinOp(
+				left=me.typecall(restype._type, token),
+				op = pyast.Mult(),
+				right=pyast.Num(n=1000,lineno=token.line,col_offset=token.col),
+				lineno=token.line,col_offset=token.col)
+
+	td_unsized_array.__typecall = __typecall
 		
 	def cnvtype(me, typ):
-		if typ in me._cache:
-			return me._cache[typ]
-		res = typ.__cnvtype(me)
-		me._cache[typ] = res
-		if res not in me._uniquename:
-			me._uniquename[res] = '$TYPE#%d'%len(me._uniquename) + res.__name__
-		return res
+		try:
+			return typ.__ctype
+		except AttributeError:
+			pass
+		return typ.__cnvtype(me)
 		
-	def sysname(me, typ):
-		ctype = me.cnvtype(typ)
-		return me._uniquename[ctype]
+	def __cnvtype(typ, me):
+		print(typ)
+		import pdb;pdb.set_trace()
+		raise FatalError()
+		
+	_type_descriptor.__cnvtype = __cnvtype
+		
+	TD_WCHAR.__typename    = '$T$wchar'
+	TD_CHAR.__typename     = '$T$char'
+	TD_SHORT.__typename    = '$T$short'
+	TD_INT.__typename      = '$T$int'
+	TD_LONG.__typename     = '$T$long'
+	TD_LONGLONG.__typename = '$T$longlong'
+	
+	TD_UCHAR.__typename     = '$T$uchar'
+	TD_USHORT.__typename    = '$T$ushort'
+	TD_UINT.__typename      = '$T$uint'
+	TD_ULONG.__typename     = '$T$ulong'
+	TD_ULONGLONG.__typename = '$T$ulonglong'
+	TD_SIZE_T.__typename    = '$T$size_t'
+	
+	TD_FLOAT.__typename     = '$T$float'
+	TD_DOUBLE.__typename    = '$T$double'
+
 		
 
+	TD_WCHAR.__ctype    = pyct.c_wchar
 	TD_CHAR.__ctype     = pyct.c_char
 	TD_SHORT.__ctype    = pyct.c_short
 	TD_INT.__ctype      = pyct.c_int32
@@ -1107,6 +1199,7 @@ class TypeConverter:
 	TD_FLOAT.__ctype     = pyct.c_float
 	TD_DOUBLE.__ctype    = pyct.c_double
 	TD_VOIDP.__ctype     = pyct.c_voidp
+	TD_CVOIDP.__ctype    = pyct.c_voidp
 	pointer_type(TD_CHAR).__ctype = pyct.c_char_p
 	pointer_type(const_type(TD_CHAR)).__ctype = pyct.c_char_p
 	
@@ -1119,17 +1212,17 @@ class TypeConverter:
 			return td.__ctype
 		except AttributeError:
 			pass
-			
 		ctype = type(td.id, (pyct.Structure,), {'__slots__':[], '__module__':'test'})
 		td.__ctype = ctype
 		if td.fields:
 			fields = []
 			for f,t in td.fields:
 				fields += [(f,me.cnvtype(t))]
-
 			ctype._fields_ = fields
 		return ctype
 	td_struct.__cnvtype = __cnvtype
+	
+	td_enum.__ctype = pyct.c_int
 	
 	def __cnvtype(td, me):
 		try:
@@ -1141,6 +1234,8 @@ class TypeConverter:
 		td.__ctype = ctype
 		return ctype
 	td_sized_array.__cnvtype = __cnvtype
+	
+	
 
 	
 	def __cnvtype(td, me):
@@ -1156,7 +1251,11 @@ class TypeConverter:
 	
 	
 	def __cnvtype(td, me):
-		return td.__ctype
+		try:
+			return td.__ctype
+		except AttributeError:
+			print(td)
+			raise
 	td_primitive.__cnvtype = __cnvtype
 	
 	def __cnvtype(td, me):
@@ -1324,7 +1423,7 @@ class TypeConverter:
 	
 	def __toright(td, me, ast):
 		ast= pyast.Call(
-					func=pyast.Name(id='addressof',
+					func=pyast.Name(id='$addressof',
 						ctx=pyast.Load(),
 						lineno=ast.lineno,col_offset=ast.col_offset
 					),
@@ -1410,16 +1509,30 @@ class ExecodeGeneratorLLP64:
 	#_statement.__compile = __compile
 	
 	def __compile(module, me):
+		#pymod = types.ModuleType(module.name)
+		
 		pymod = types.ModuleType(module.name)
+		pymod.__dict__['__builtins__'] =__builtins__.copy()
 		
 		module.__current_vars  = {}
 		module.__external_vars = {}
+		
+		import ctypes
+		
+		me.typecnverter.setnames(pymod.__dict__)
 		
 		set_goto.goto  = '$GOTO'
 		set_goto.label = '$LABEL'
 		set_goto.pushblock = '$PUSH'
 		set_goto.popblock  = '$POP'
-		pymod.__dict__['$SETGOTO'] = set_goto
+		pymod.__dict__['$SETGOTO']   = set_goto
+		pymod.__dict__['$POINTER']   = ctypes.POINTER
+		pymod.__dict__['$CFUNCTYPE'] = ctypes.CFUNCTYPE
+		pymod.__dict__['$pointer']   = ctypes.pointer
+		pymod.__dict__['$c_buffer']  = ctypes.c_buffer
+		pymod.__dict__['$cast']      = ctypes.cast
+		pymod.__dict__['$addressof'] = ctypes.addressof
+		pymod.__dict__['$classalias']= classalias
 		
 		for stmt in module.statements:
 			codes = me.compile(stmt)
@@ -1429,19 +1542,13 @@ class ExecodeGeneratorLLP64:
 				
 		pymod.__dict__['$G'] = pymod
 		
-		for key in me.typecnverter._uniquename:
-			#print(key, compiler.typecnverter._uniquename[key])
-			name = me.typecnverter._uniquename[key]
-			setattr(pymod, name, key)
 			
-		import ctypes
-		pymod.c_char_p = ctypes.c_char_p
-		pymod.cast     = ctypes.cast
-		pymod.c_voidp     = ctypes.c_voidp
-		pymod.POINTER     = ctypes.POINTER
-		pymod.c_buffer    = ctypes.c_buffer
-		pymod.pointer    = ctypes.pointer
-		pymod.addressof    = ctypes.addressof
+		#pymod.c_char_p = ctypes.c_char_p
+		#pymod.cast     = ctypes.cast
+		#pymod.c_voidp     = ctypes.c_voidp
+		#pymod.c_buffer    = ctypes.c_buffer
+		#pymod.pointer    = ctypes.pointer
+		#pymod.addressof    = ctypes.addressof
 		
 		code = compile(pyast.Module(body=me.globalvarconverter.staticvarcreatecode), __file__, 'exec')
 		exec(code, pymod.__dict__)
@@ -1468,7 +1575,17 @@ class ExecodeGeneratorLLP64:
 	
 	
 	def __compile(stmt, me):
-		return []
+		ast = pyast.Assign(
+			targets=[
+				pyast.Name(
+					id=stmt.id,ctx=pyast.Store(),
+					lineno=stmt.first_token.line, col_offset=stmt.first_token.col),
+			],
+			value=me.typecnverter.typecall(stmt.restype, stmt.first_token),
+			lineno=stmt.first_token.line, col_offset=stmt.first_token.col
+		)
+		return [ast]
+
 	TypedefStmt.__compile = __compile
 	
 	def __compile(stmt, me):
@@ -1484,18 +1601,33 @@ class ExecodeGeneratorLLP64:
 	DefineMemberStmt.__compile = __compile
 	
 	def __compile(stmt, me):
-		for s in stmt.statements:
-			me.compile(s)
-		fields = []
+		ast = pyast.parse('class NAME(BASE, metaclass=classalias):pass').body[0]
+		ast.name = stmt.id
+		ast.bases = [me.typecnverter.typecall(stmt.restype, stmt.first_token)]
+		ast.keywords[0].value.id = '$classalias'
 		
-		ctype = me.typecnverter.cnvtype(stmt.restype)
-		if not hasattr(ctype, '_fields_'):
-			for f,t in stmt.restype.fields:
-				fields += [(f,me.typecnverter.cnvtype(t))]
-
-			ctype._fields_ = fields
-		return []
+		body = []
+		for s in stmt.statements:
+			body += me.compile(s)
+		if body:
+			ast.body = body
+		
+		return [ast]
 	StructDefine.__compile = __compile
+	
+	def __compile(stmt, me):
+		#for s in stmt.statements:
+		#	me.compile(s)
+		#fields = []
+		#
+		#ctype = me.typecnverter.cnvtype(stmt.restype)
+		#if not hasattr(ctype, '_fields_'):
+		#	for f,t in stmt.restype.fields:
+		#		fields += [(f,me.typecnverter.cnvtype(t))]
+        #
+		#	ctype._fields_ = fields
+		return []
+	UnionDefine.__compile = __compile
 	
 	def __init(scope, me):
 		scope.__current_vars  = {}
@@ -1538,8 +1670,6 @@ class ExecodeGeneratorLLP64:
 	def __compile(func, me):
 		if func.haserror:
 			return []
-		
-		me.globalvarconverter.setuniequeid(func)
 		
 		_scope.__init(func, me)
 		func.__stack_size = 0
@@ -1717,7 +1847,7 @@ class ExecodeGeneratorLLP64:
 			#	raise FatalError()
 
 				
-			print(s, me.globalvarconverter.getuniqueid(s))
+			#print(s, me.globalvarconverter.getuniqueid(s))
 			
 		#raise FatalError()
 				
@@ -1727,7 +1857,7 @@ class ExecodeGeneratorLLP64:
 	LabelStmt.__skipinto = __skipinto
 	
 	def __compile(stmt, me):
-		print(stmt, stmt.label, stmt.labelstmt)
+		#print(stmt, stmt.label, stmt.labelstmt)
 		if stmt.labelstmt is None:
 			msg = 'gotoに対応するラベル"%s"がありません'%stmt.label
 			raise SyntaxError(stmt.first_token, msg)
@@ -1768,7 +1898,7 @@ class ExecodeGeneratorLLP64:
 		elif gotoindex > labelindex:
 			for s in root.statements[labelindex:gotoindex]:
 				if not isinstance(s, _declareVarStmt): continue
-				ast = me.globalvarconverter.rollbackname(s, stmt.first_toke)
+				ast = me.globalvarconverter.rollbackname(s, stmt.first_token)
 				body += [ast]
 		
 		enter_loop = 0
@@ -1810,7 +1940,7 @@ class ExecodeGeneratorLLP64:
 	GotoStmt.__compile = __compile
 	
 	def __compile(stmt, me):
-		print(stmt, stmt.label)
+		#print(stmt, stmt.label)
 		label = pyast.Attribute(
 			 value=pyast.Name(
 				id = '$LABEL', ctx=pyast.Load(),
@@ -1914,6 +2044,89 @@ while 1:
 		
 		return [ast]
 	While.__compile = __compile
+	
+	
+	def __compile(stmt, me):
+	
+		switchid = genuniqueid(stmt)
+		
+		ast = pyast.parse(r"""for _ in [0]:pass""").body[0]
+		
+		
+		test = me.exprconverter.compile(me.exprconverter.toright(stmt.test))
+
+		cases = []
+		for s in stmt.body.statements:
+			if isinstance(s, CaseStmt):
+				cases += [s.value]
+				
+		prev = goto = []
+		for c in cases:
+			gotocase = pyast.Attribute(
+				value=pyast.Name(
+						id = '$GOTO', ctx=pyast.Load()
+					 ),
+					 attr="$CASE$%s#%d"%(switchid, c),
+					 ctx=pyast.Load())
+			gotocase = pyast.Expr(value = gotocase)
+			control = pyast.parse("""if VALUE==%d: pass"""%c).body[0]
+			control.test.left = test
+			
+			control.body = [gotocase]
+			prev += [control]
+			prev = control.orelse
+			
+		gotocase = pyast.Attribute(
+			value=pyast.Name(
+					id = '$GOTO', ctx=pyast.Load()
+				 ),
+				 attr="$CASE$%s#DEFAULT"%switchid,
+				 ctx=pyast.Load())
+		gotocase = pyast.Expr(value = gotocase)
+		prev += [gotocase]
+		
+		ast.body = goto
+		for n in pyast.walk(ast):
+			n.lineno = stmt.first_token.line
+			n.col_offset = stmt.first_token.col
+		
+		_scope.__init(stmt, me)
+		_scope.__init(stmt.body, me)
+		for s in stmt.body.statements:
+			if isinstance(s, CaseStmt):
+				#if s.value == 99:
+				#	import pdb;pdb.set_trace()
+				caselabel = pyast.Attribute(
+					value=pyast.Name(
+							id = '$LABEL', ctx=pyast.Load()
+						 ),
+						 attr="$CASE$%s#%d"%(switchid, s.value),
+						 ctx=pyast.Load())
+				caselabel = pyast.Expr(value = caselabel)
+				ast.body += [caselabel]
+				for n in pyast.walk(caselabel):
+					n.lineno = s.first_token.line
+					n.col_offset = s.first_token.col
+				
+			elif isinstance(s, DefaultStmt):
+				caselabel = pyast.Attribute(
+					value=pyast.Name(
+							id = '$LABEL', ctx=pyast.Load()
+						 ),
+						attr="$CASE$%s#DEFAULT"%switchid,ctx=pyast.Load())
+				caselabel = pyast.Expr(value = caselabel)
+				for n in pyast.walk(caselabel):
+					n.lineno = s.first_token.line
+					n.col_offset = s.first_token.col
+				
+				ast.body += [caselabel]
+			else:
+				ast.body += me.compile(s)
+		ast.body += _scope.__escape(stmt.body, me)
+		ast.body += _scope.__escape(stmt, me)
+		
+		return [ast]
+	Switch.__compile = __compile
 	
 	def __compile(scope, me):	
 		_scope.__init(scope, me)
@@ -2062,9 +2275,18 @@ del __COUNT__
 	
 		s = stmt.first_token.value.lstrip()
 		if s.startswith('@py:'):
-			s = 'if 1:' + s[len('@py:'):]
+			s = 'class _____:' + s[len('@py:'):]
 			lineno = stmt.value.count('\n', 0, stmt.value.find('@py:')) + stmt.first_token.line - 1
-			return pyast.increment_lineno(pyast.parse(s), lineno).body
+			
+			
+			try:
+				ast = pyast.parse(s)
+				ast.name = '$INSERT_COMMENT'
+			except:
+				warnings.warn(InsertPySourceError(stmt.first_token))
+				return []
+			
+			return pyast.increment_lineno(ast, lineno).body
 		else:
 			return []
 		

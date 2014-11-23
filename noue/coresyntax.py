@@ -212,12 +212,13 @@ class SyntaxCore:
 		return ctypes.c_voidp
 		
 	def sizeofexp(me, typ, token):
-		if is_usertype(typ) and strip_options(typ).fields == []:
+		if is_usertype(typ) and not strip_options(typ).fields:
 			warnings.warn(InvalidSizeof(token, typ))
 			return me.errorexp(token)
 		size = me.size_caculator.sizeof(typ)
 		if size != 0:
 			return ConstInteger(TD_SIZE_T, size, token)
+
 		warnings.warn(InvalidSizeof(token, typ))
 		return me.errorexp(token)
 
@@ -325,13 +326,13 @@ class SyntaxCore:
 		if is_errorexp(left):  return left
 		if is_errorexp(right): return right
 		
-		return me._bit_binop('>>', left, right)
+		return me._bit_binop('<<', left, right)
 		
 	def rshift(me, scope, left, right):
 		if is_errorexp(left):  return left
 		if is_errorexp(right): return right
 		
-		return me._bit_binop('<<', left, right)
+		return me._bit_binop('>>', left, right)
 		
 	def bitxor(me, scope, left, right):
 		if is_errorexp(left):  return left
@@ -720,10 +721,17 @@ class SyntaxCore:
 			msg = '"->"の左側がポインタではありません。(%s)'%(owner.restype.name)
 			warnings.warn(TypeError(owner.first_token, msg))
 			return me.errorexp(owner.first_token)
+			
 		if not is_usertype(target_type(owner.restype)):
 			msg = '"->"の左側が構造体または共用体ではありません。(%s)'%(target_type(owner.restype).name)
 			warnings.warn(TypeError(owner.first_token, msg))
 			return me.errorexp(owner.first_token)
+			
+		if strip_options(target_type(owner.restype)).fields is None:
+			msg = '構造体は未定義です。(%s)'%(target_type(owner.restype).name)
+			warnings.warn(TypeError(owner.first_token, msg))
+			return me.errorexp(owner.first_token)
+			
 		if not me.has_member(scope, target_type(owner.restype), attr.value):
 			msg = '"%s"は%sのメンバーではありません。'%(attr.value, target_type(owner.restype).name)
 			warnings.warn(TypeError(owner.first_token, msg))
@@ -847,6 +855,9 @@ class SyntaxCore:
 		return Index(owner, index, last_token)
 		
 	def cast(me, scope, restype, value, first_token):
+		if isinstance(value, ConstInteger) \
+			and value.value == 0:
+				return Cast(restype, value, first_token)
 		if is_numeric(value.restype) and is_numeric(restype):
 			return Cast(restype, value, first_token)
 		if is_pointer(value.restype) and is_pointer(restype):
@@ -1018,6 +1029,8 @@ class SyntaxCore:
 				if isinstance(stmt, LocalExtern):
 					res = VarGlobal(stmt.restype, id)
 				elif isinstance(stmt, LocalStaticStmt):
+					if type(stmt.restype) == tuple:
+						import pdb;pdb.set_trace()
 					res = VarStaticLocal(stmt.restype, id)
 				elif isinstance(stmt, LocalVarStmt):
 					res = VarLocal(stmt.restype, id)
@@ -1101,6 +1114,7 @@ class SyntaxCore:
 		return stmt
 		
 	def definemember(me, scope, restype, name, bitsize, first_token, last_token):
+		#print(scope)
 		if not isinstance(scope, StructDefine) and not isinstance(scope, UnionDefine):
 			raise FatalError()
 		
@@ -1181,6 +1195,9 @@ class SyntaxCore:
 	def declarevar(me, scope, restype, name, init, strage, options, first_token, last_token):
 		if not isinstance(strage, str):
 			raise FatalError()
+			
+		if type(restype) == tuple:
+			import pdb;pdb.set_trace()
 		
 		if isinstance(scope, _execscope):
 			if strage == 'extern':
@@ -1458,7 +1475,7 @@ class SyntaxCore:
 				#stmt = DummyStmt(first_token, last_token)
 				#scope.statements += [stmt]
 				me.addstatement(scope, DummyStmt(first_token, last_token))
-				return stmt
+				return scope.statements[-1]
 				
 		else:
 			try:
@@ -1592,7 +1609,9 @@ class SyntaxCore:
 			raise FatalError()
 		restype = strip_options(restype)
 		if restype.fields is None:
+			#import pdb;pdb.set_trace()
 			raise FatalError()
+			
 			
 		return attr in [f[0] for f in restype.fields]
 		
@@ -1838,14 +1857,15 @@ class SyntaxCore:
 
 	def comment(me, scope, token):
 		s = token.value.lstrip()
-		if s.startswith('@py:'):
-			s = 'if 1:' + s[len('@py:'):]
-			last = copy.deepcopy(token)
-			last.line += len(token.value.splitlines())-1
+		#if s.startswith('@py:'):
+		#	s = 'if 1:' + s[len('@py:'):]
+		#	last = copy.deepcopy(token)
+		#	last.line += len(token.value.splitlines())-1
 		stmt = CommentStmt(token)
 		#stmt.parent = weakref.proxy(scope)
 		#scope.statements += [stmt]
 		me.addstatement(scope, stmt)
+		#scope.statements[-1],scope.statements[-2] = scope.statements[-2],scope.statements[-1]
 			
 		return stmt
 		

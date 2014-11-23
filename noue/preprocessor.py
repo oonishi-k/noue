@@ -155,7 +155,7 @@ _macroFile = lambda t: [TokenDoubleQuote(repr(t.file), '', t.file, t.line, t.col
 class Preprocessor:
 	default_include = os.path.abspath(os.path.join(os.path.dirname(__file__), 'include'))
 	default_encoding= 'utf8'
-	def __init__(me, tok, includes=[]):
+	def __init__(me, tok, includes=[], ignore_default_include=False):
 		me.tok = tok
 		me._macro_simple  = {}
 		me._macro_complex = {}
@@ -163,7 +163,10 @@ class Preprocessor:
 		me._macro_special['__LINE__'] = _macroLine
 		me._macro_special['__FILE__'] = _macroFile
 		
-		me.includes = [me.default_include] + includes
+		if ignore_default_include:
+			me.includes = [me.default_include] + includes
+		else:
+			me.includes = [me.default_include] + includes
 		me.dir_encodings = {me.default_include:'utf8'}
 		me.default_encoding = me.default_encoding
 		return
@@ -363,7 +366,7 @@ class Preprocessor:
 				#print(tokens[0].file)
 				#print('\t->', name)
 				return (yield from me.open_include(module, name))
-		
+
 		me.error(tokens[0], 'includeファイル"%s"が見つかりません'%filename, IncludeFileNotFound)
 		
 	def directive(me, module, it, tokens):

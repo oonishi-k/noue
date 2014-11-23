@@ -49,17 +49,29 @@ from os.path import split as path_split, splitext
 
 
 class Parser:
+	class FileEnd(Exception):
+		pass
+		
+	class InsertComment(NoueException):
+		def __init__(me, token):
+			NoueException.__init__(me, token, token.value)
+			me.token = token
+
 	def __init__(me, compilercore):
 		me.tokens = []
 		me._index  = 0
 		me.errors = []
 		me.compiler = compilercore
 		
-	
-	class InsertComment(NoueException):
-		def __init__(me, token):
-			NoueException.__init__(me, token, '')
-			me.token = token
+		me._comments = []
+		
+	def getcomment(me):
+		res = me._comments
+		me._comments = []
+		return res
+		
+	def _addcomment(me, wn):
+		me._comments += [wn]
 
 	def seek(me, offset=1):
 		me._index += offset
@@ -69,22 +81,10 @@ class Parser:
 		while me._index+size >= len(me.tokens):
 			try:
 				toks = (yield)
-				#if toks is None:
-				#	break
-				new = []
-				for t in toks:
-					if t.type == 'MC':
-						warnings.warn(me.InsertComment(t))
-					else:
-						new += [t]
-				#me.tokens += toks
-				me.tokens += new
-			except NoueException as ins:
-				import pdb;pdb.set_trace()
-				warnings.warn(ins)
-				pass
-				
-				
+				me.tokens += toks
+			except me.InsertComment as comm:
+				me._addcomment(comm.token)
+			
 		return
 
 	@property
@@ -632,39 +632,33 @@ class Parser:
 		
 		nxt = yield from me.next(1)
 		
-		if me.cur.type == 'ID' and nxt.type == '{':
-			with warnings.catch_warnings(record=True) as rec:
-				warnings.filterwarnings('always')
-				struct_scope = me.compiler.structscope(scope, me.cur.value, first_token, me.cur)
-				
+		if me.cur.type == '{' or nxt.type == '{':
+			
+			if me.cur.type == 'ID':
+				name = me.cur.value
 				yield from me.seek(2)
-				while me.cur.type != '}':
-					yield from me.parse_struct_body(struct_scope)
-
-			for w in rec:
-				if isinstance(w.message, NoueError):
-					struct_scope.restype.fields = []
-					struct_scope.haserror = True
-				#print('from struct', w)
-				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
-				
-			res = struct_scope.restype
-		elif me.cur.type == '{':
-			with warnings.catch_warnings(record=True) as rec:
-				warnings.filterwarnings('always')
-				struct_scope = me.compiler.structscope(scope, '', first_token, me.cur)
-				
+			elif me.cur.type == '{':
+				name = ''
 				yield from me.seek()
-				while me.cur.type != '}':
-					yield from me.parse_struct_body(struct_scope)
-			for w in rec:
-				if isinstance(w.message, NoueError):
-					struct_scope.restype.fields = []
-					struct_scope.haserror = True
-				#print('from struct', w)
-				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
-	
-			res = struct_scope.restype
+			
+			try:
+				with warnings.catch_warnings(record=True) as rec:
+					struct_scope = me.compiler.structscope(scope, name, first_token, me.cur)
+					
+					while me.cur.type != '}':
+						yield from me.parse_struct_body(struct_scope)
+						
+					res = struct_scope.restype
+			finally:
+				for w in rec:
+					if isinstance(w.message, NoueException):
+						if isinstance(w.message, NoueError):
+							struct_scope.haserror = True
+						struct_scope.errors += [w.message]
+					
+					warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+
+				
 		elif me.cur.type == 'ID':
 			## sturuct type_t *var; みたいなパターン
 			
@@ -686,40 +680,33 @@ class Parser:
 		yield from me.seek()
 		
 		nxt = yield from me.next(1)
-		
-		if me.cur.type == 'ID' and nxt.type == '{':
-			with warnings.catch_warnings(record=True) as rec:
-				warnings.filterwarnings('always')
-				union_scope = me.compiler.unionscope(scope, me.cur.value, first_token, me.cur)
-				
-				yield from me.seek(2)
-				while me.cur.type != '}':
-					yield from me.parse_struct_body(union_scope)
 
-			for w in rec:
-				if isinstance(w.message, NoueError):
-					union_scope.restype.fields = []
-					union_scope.haserror = True
-				#print('from union', w)
-				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
-				
-			res = union_scope.restype
-		elif me.cur.type == '{':
-			with warnings.catch_warnings(record=True) as rec:
-				warnings.filterwarnings('always')
-				union_scope = me.compiler.unionscope(scope, '', first_token, me.cur)
-				
+
+		if me.cur.type == '{' or nxt.type == '{':
+			
+			if me.cur.type == 'ID':
+				name = me.cur.value
+				yield from me.seek(2)
+			elif me.cur.type == '{':
+				name = ''
 				yield from me.seek()
-				while me.cur.type != '}':
-					yield from me.parse_struct_body(union_scope)
-					
-			for w in rec:
-				if isinstance(w.message, NoueError):
-					union_scope.restype.fields = []
-					union_scope.haserror = True
-				#print('from union', w)
-				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
 				
+				
+			try:
+				with warnings.catch_warnings(record=True) as rec:
+					union_scope = me.compiler.unionscope(scope, name, first_token, me.cur)
+					
+					while me.cur.type != '}':
+						yield from me.parse_struct_body(union_scope)
+						
+			finally:
+				for w in rec:
+					if isinstance(w.message, NoueException):
+						if isinstance(w.message, NoueError):
+							union_scope.haserror = True
+						union_scope.errors += [w.message]
+					
+					warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
 			res = union_scope.restype
 		elif me.cur.type == 'ID':
 			## sturuct type_t *var; みたいなパターン
@@ -782,9 +769,13 @@ class Parser:
 			#affected = True
 		elif me.cur.type == 'ID':
 			try:
+				index = me._index
 				tid = yield from me.parse_tid_id(scope)
 			except NotTypeDescriptor as ntd:
+				me._index = index
 				if 'unsigned' in options or 'signed' in options:
+					tid = TD_INT
+				elif strage == 'static':
 					tid = TD_INT
 				else:
 					raise
@@ -940,7 +931,15 @@ class Parser:
 				if is_errorexp(size):
 					return td_error(), None
 				size = me.compiler.eval_constinteger(size)
-				restype = sizedarray_type(restype, size)
+				if size <= 0:
+					warnings.warn(SemanticError(tok, '配列型がサイズ0です。'))
+					return TD_ERROR, id
+				else:
+					if size <= 0:
+						warnings.warn(SemanticError(tok, '配列型がサイズ0です。'))
+						return TD_ERROR,id
+					else:
+						restype = sizedarray_type(restype, size)
 			except NotConstInteger as err:
 				## 関数引数定義での可変長配列変数の宣言
 				## これはどうなるんだろう　あとで確認
@@ -1021,7 +1020,12 @@ class Parser:
 				#restype = sizedarray_type(restype, size)
 
 				size = me.compiler.eval_constinteger(size)
-				restype = sizedarray_type(restype, size)
+				
+				if size <= 0:
+					warnings.warn(SemanticError(tok, '配列型がサイズ0です。'))
+					return TD_ERROR
+				else:
+					restype = sizedarray_type(restype, size)
 			except NotConstInteger as nci:
 				## 関数引数定義での可変長配列変数の宣言
 				## これはどうなるんだろう　あとで確認
@@ -1151,24 +1155,21 @@ class Parser:
 		## 関数定義
 		funcscope = me.compiler.definefunc(scope, proto, id.value, strage, options, first_token)
 		
-		with warnings.catch_warnings(record=True) as rec:
-		#	warnings.filterwarnings('always', category=Warning)
-		#if 1:
-			#warnings.filterwarnings('error')
-			warnings.filterwarnings('always')
-			#warnings.filterwarnings('error', category=NoueError)
-			yield from me.parse_funcbody(funcscope)
-			
-		for w in rec:
-			if isinstance(w.message, NoueError):
-				funcscope.haserror = True
-				funcscope.errors += [w.message]
-			elif isinstance(w.message, NoueWarning):
-				funcscope.errors += [w.message]
-			#print('from funcdef', w)
-			warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+		try:
+			with warnings.catch_warnings(record=True) as rec:
+				yield from me.parse_funcbody(funcscope)
+				return funcscope
 		
-		return funcscope
+		finally:
+			for w in rec:
+				if isinstance(w.message, NoueException):
+					if isinstance(w.message, NoueError):
+						funcscope.haserror = True
+				
+				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+	
+		
+		
 		
 
 		
@@ -1178,28 +1179,25 @@ class Parser:
 		if me.cur.type != '{': raise FatalError()
 		compileerrors = []
 		
-		with warnings.catch_warnings(record=True) as rec:
-			warnings.filterwarnings('always')
-			yield from me.seek()
-			
-			for w in rec:
-				if isinstance(w.message, me.InsertComment):
-					me.compiler.comment(scope, w.message.token)
-				else:
-					#import pdb;pdb.set_trace()
-					compileerrors += [w]
-			rec.clear()
-					
-			while me.cur.type != '}':
-				yield from me.parse_funcstmt(scope)
-			yield from me.seek()
-		for w in compileerrors+rec:
-			if isinstance(w.message, me.InsertComment):
-				#me.compiler.comment(scope, w.message.token)
-				pass
-			else:
-				#import pdb;pdb.set_trace()
-				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+		yield from me.seek()
+				
+		while me.cur.type != '}':
+			yield from me.parse_funcstmt(scope)
+		
+		yield from me.seek()
+		## ここでコメントをキャッチしないとスコープに入らない
+		#try:
+		#	with warnings.catch_warnings(record=True) as rec:
+		#		yield from me.seek()
+		#finally:
+		#	for w in rec:
+		#		if isinstance(w.message, me.InsertComment):
+		#			me.compiler.comment(scope, w.message.token)
+		#		else:
+		#			warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+	
+		
+		
 			
 	def parse_initlist(me, scope):
 		
@@ -1249,7 +1247,7 @@ class Parser:
 		#	yield from me.seek()
 		
 		while size_and_tokens:
-			size,_ = size_and_tokens.pop()
+			size,tok = size_and_tokens.pop()
 			if size is None:
 				restype = unsizedarray_type(restype)
 				continue
@@ -1260,9 +1258,13 @@ class Parser:
 					warnings.warn(InvalidArrayType(id, restype))
 					break
 				if is_errorexp(size):
-					return td_error(), None
+					return td_error()
 				size = me.compiler.eval_constinteger(size)
-				restype = sizedarray_type(restype, size)
+				if size <= 0:
+					warnings.warn(SemanticError(tok, '配列型がサイズ0です。'))
+					return TD_ERROR
+				else:
+					restype = sizedarray_type(restype, size)
 			except NotConstInteger as nci:
 				raise ## 未対応。可変長配列
 		return restype
@@ -1385,8 +1387,14 @@ class Parser:
 				
 			
 	
-				
 	def parse_struct_body(me, scope):
+		comm = me.getcomment()
+		for c in comm:
+			me.compiler.comment(scope, c)
+		yield from me._parse_struct_body(scope)
+	
+				
+	def _parse_struct_body(me, scope):
 		first_token = me.cur
 		
 		last_stmt_cnt = len(scope.statements)
@@ -1833,114 +1841,81 @@ class Parser:
 				
 			
 	def parse_funcstmt(me, scope):
-		with warnings.catch_warnings(record=True) as rec:
-			#warnings.filterwarnings('error', category=NoueError)
-			warnings.filterwarnings('always')
+		comm = me.getcomment()
+		for c in comm:
+			me.compiler.comment(scope, c)
 			
-					
-			first_token = me.cur
-			if me.cur.value == 'for':
-				yield from me.parse_for(scope)
-			elif me.cur.value == 'if':
-				yield from me.parse_if(scope)
-			elif me.cur.value == 'while':
-				yield from me.parse_while(scope)
-			elif me.cur.value == 'do':
-				yield from me.parse_dowhile(scope)
-			elif me.cur.value == 'switch':
-				yield from me.parse_switch(scope)
-			elif me.cur.value == '{':
-				newscope = me.compiler.block(scope, me.cur)
-				yield from me.parse_funcbody(newscope)
-			else:
-				yield from me.parse_func_simplestmt(scope)
+		first_token = me.cur
+		if me.cur.value == 'for':
+			yield from me.parse_for(scope)
+		elif me.cur.value == 'if':
+			yield from me.parse_if(scope)
+		elif me.cur.value == 'while':
+			yield from me.parse_while(scope)
+		elif me.cur.value == 'do':
+			yield from me.parse_dowhile(scope)
+		elif me.cur.value == 'switch':
+			yield from me.parse_switch(scope)
+		elif me.cur.value == '{':
+			newscope = me.compiler.block(scope, me.cur)
+			yield from me.parse_funcbody(newscope)
+		else:
+			yield from me.parse_func_simplestmt(scope)
+
+		comm = me.getcomment()
+		for c in comm:
+			me.compiler.comment(scope, c)
 		
-		for w in rec:
-			#print('from funcstmt', w)
-			if isinstance(w.message, me.InsertComment):
-				me.compiler.comment(scope, w.message.token)
-			else:
-				#import pdb;pdb.set_trace()
-				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
 				
 				
 	def parse_global(me, name=''):
 		#compileerrors = []
-		me.module = me.compiler.modulefile(name)
-		with warnings.catch_warnings(record=True) as rec:
-			warnings.filterwarnings('always')
+		try:
+			me.module = me.compiler.modulefile(name)
 			yield from me.load()
-			#if me.cur.type == 'START':
-			#	yield from me.seek()
-			#else:
-			#	msg = 'パース開始時には"START"トークンが必要です'
-			#	warnings.warn(SyntaxError(me.cur, msg))
-			#print('glob', rec)
-		for w in rec:
-			#print(w)
-			if isinstance(w.message, me.InsertComment):
-				me.compiler.comment(me.module, w.message.token)
-				continue
-			if isinstance(w.message, NoueError):
-				me.module.haserror = True
-				me.module.errors += [w.message]
-			elif isinstance(w.message, NoueWarning):
-				me.module.errors += [w.message]
-			warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
-
-			
-		#for w in rec:
-		#	if isinstance(w.message, me.InsertComment):
-		#		me.compiler.comment(me.module, w.message.token)
-		#	else:
-		#		compileerrors += [w]
-		
-		while 1:
-			with warnings.catch_warnings(record=True) as rec:
-				warnings.filterwarnings('always')
-			#if 1:
+			if me.cur.type == 'END':
+				return me.module
+			while 1:
 				try:
-					if me.cur.type == 'END':
-						break 
+					with warnings.catch_warnings(record=True) as rec:
+						comm = me.getcomment()
+						for c in comm:
+							me.compiler.comment(me.module, c)
+							
+						try:
+							if me.cur.type == 'END':
+								break 
+							
+							## 不正なトークン
+							if me.cur.type != 'ID':
+								warnings.warn(ParseUnexpectedToken(me.cur))
+								yield from me.seek()
+								continue
+								
+							
+							yield from me.parse_vardecl(me.module)
+						except NotTypeDescriptor as nt:
+							warnings.warn(nt)
+							#yield from me.parse_vardecl_tail(scope, me.compiler.errortype(), me.cur, '')
+							yield from me.parse_vardecl_body(me.module, me.compiler.errortype(), '', set(), me.cur)
+							if me.cur.type != ';':
+								warnings.warn(ParseUnexpectedToken(me.cur))
+							yield from me.seek()
+						except NoueError as err:
+							print(err, err.pos)
+							raise
+				finally:
+					for w in rec:
+						if isinstance(w.message, NoueError):
+							me.module.statements[-1].haserror = True
+						warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+				
+
+		except me.FileEnd:
+			msg = '不正なファイル終端です'
+			warnings.warn(SyntaxError(me.prev(1), msg))
+			
 					
-					## 不正なトークン
-					if me.cur.type != 'ID':
-						warnings.warn(ParseUnexpectedToken(me.cur))
-						yield from me.seek()
-						continue
-						
-					
-					yield from me.parse_vardecl(me.module)
-				except NotTypeDescriptor as nt:
-					warnings.warn(nt)
-					#yield from me.parse_vardecl_tail(scope, me.compiler.errortype(), me.cur, '')
-					yield from me.parse_vardecl_body(me.module, me.compiler.errortype(), '', set(), me.cur)
-					if me.cur.type != ';':
-						warnings.warn(ParseUnexpectedToken(me.cur))
-					yield from me.seek()
-				except NoueError as err:
-					print(err, err.pos)
-					raise
-					
-				#for w in rec:					
-				#	if isinstance(w.message, me.InsertComment):
-				#		me.compiler.comment(me.module, w.message.token)
-				#	else:
-				#		compileerrors += [w]
-				#rec.clear()
-			#for w in compileerrors:					
-			for w in rec:
-				if isinstance(w.message, me.InsertComment):
-					me.compiler.comment(me.module, w.message.token)
-					continue
-				if isinstance(w.message, NoueError):
-					me.module.haserror = True
-					me.module.errors += [w.message]
-				elif isinstance(w.message, NoueWarning):
-					me.module.errors += [w.message]
-				else:
-					warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
-				#print('from global', w)
 		return me.module
 
 if __name__ == '__main__':
@@ -2084,6 +2059,7 @@ if __name__ == '__main__':
 	Fin:
 		return 0;
 	}
+	int test2(int n a{
 	
 	"""
 	tok = Tokenizer().tokenize(src, __file__, lno)
@@ -2098,26 +2074,27 @@ if __name__ == '__main__':
 	#with warnings.catch_warnings() as rec:
 	with warnings.catch_warnings(record = True) as rec:
 	#if 1:
-		warnings.filterwarnings('always', category=NoueException)
-		warnings.filterwarnings('error', category=NoueError)
-		
+		#warnings.filterwarnings('always', category=NoueException)
+		#warnings.filterwarnings('error', category=NoueError)
+		warnings.filterwarnings('always')
 		#warnings.filterwarnings('ignore', category=NoaffectStatement)
 		try:
 			for t in tok:
 				if t and t[0].type == 'MC':
-					#p.throw(parser.InsertComment(t[0]))
+					p.throw(parser.InsertComment(t[0]))
 					continue
 				#with warnings.catch_warnings():
 					#warnings.filterwarnings('ignore')
 				p.send(t)
 			p.send([END(__file__)])
+			p.throw(parser.FileEnd())
 		except StopIteration as stop:
 			module = stop.args[0]
-			
+	#print(module)
 	print('yes')
 	#print(rec)
-	#for w in rec:
-	#	print(w.message.message())
+	for w in rec:
+		print(w.message.message())
 	for e in parser.module.errors:
 		print(e.message())
 		

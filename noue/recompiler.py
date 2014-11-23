@@ -37,10 +37,44 @@ class ReParser:
 	pyast.While.__toline = __toline
 	
 	def __toline(ast, me, depth):
+		print(ast.lineno, '\t'*depth + 'for _ in '+ me.tosource(ast.iter) + ':')
+		for s in ast.body:
+			me.toline(s, depth+1)
+		return
+		
+	pyast.For.__toline = __toline
+	
+	def __toline(ast, me, depth):
+		print(ast.lineno, '\t'*depth + 'class ' + ast.name + ':')
+		for s in ast.body:
+			me.toline(s, depth+1)
+		return
+		
+	pyast.ClassDef.__toline = __toline
+	
+	def __toline(ast, me, depth):
 		print(ast.lineno, '\t'*depth + 'return '+ (me.tosource(ast.value) if ast.value else ''))
 		return
 		
 	pyast.Return.__toline = __toline
+	
+	def __toline(ast, me, depth):
+		print(ast.lineno, '\t'*depth + 'pass')
+		return
+		
+	pyast.Pass.__toline = __toline
+	
+	def __toline(ast, me, depth):
+		print(ast.lineno, '\t'*depth + 'break ')
+		return
+		
+	pyast.Break.__toline = __toline
+	
+	def __toline(ast, me, depth):
+		print(ast.lineno, '\t'*depth + 'break ')
+		return
+		
+	pyast.Continue.__toline = __toline
 	
 	def __toline(ast, me, depth):
 		print(ast.lineno, '\t'*depth + 'raise '+ (me.tosource(ast.exc) if ast.exc else ''))

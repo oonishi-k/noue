@@ -18,39 +18,54 @@ except SystemError:
 	from noue.codegenerator import *
 
 class CCompiler:
-	def __init__(me, encoding=sys.getdefaultencoding()):
+	def __init__(me, encoding=sys.getdefaultencoding()
+					, includes=[], ignore_warnings=[]):
 		me.encoding = encoding
 		me.compiler = ExecodeGeneratorLLP64()
 		me.core = SyntaxCore(me.compiler)
 		me.parser = Parser(me.core)
-		me.preprocessor = Preprocessor(Tokenizer())
+		me.preprocessor = Preprocessor(Tokenizer(), includes=includes)
+		me.ignore_warnings = ignore_warnings
 		
-	def compile(me, file, encoding=None):
-		with open(file, encoding=encoding or me.encoding) as f:
-			src = f.read()
-			return me.compile_source(src, file, 1, encoding=encoding or me.encoding)
+	def compile(me, file, encoding=None, printerror=True):
+		with warnings.catch_warnings(record=True) as r:
+			for iw in me.ignore_warnings:
+				warnings.filterwarnings('ignore', category=iw)
+
+			with open(file, encoding=encoding or me.encoding) as f:
+				src = f.read()
+				res = me.compile_source(src, file, 1, encoding=encoding or me.encoding)
+
+		if printerror:
+			for w in r:
+				print(w.message.message())
+				print()
+		else:
+			for w in r:
+				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+		return res
+				
+	def parse(me, file, encoding=None, printerror=True):
+		with warnings.catch_warnings(record=True) as r:
+			for iw in me.ignore_warnings:
+				warnings.filterwarnings('ignore', category=iw)
+
+			with open(file, encoding=encoding or me.encoding) as f:
+				src = f.read()
+				res =  me.parse_source(src, file, 1, encoding=encoding or me.encoding)
+		
+		if printerror:
+			for w in r:
+				print(w.message.message())
+				print()
+		else:
+			for w in r:
+				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+		return res
 			
 	
 	def compile_source(me, src, filename, lineno, encoding=None):
-		module = me.parse(src, filename, lineno, encoding or me.encoding)
-		#with warnings.catch_warnings():
-		#	warnings.filterwarnings('error')
-		#	ast = me.compiler.dump(module)
-		#
-		#import noue.recompiler
-		#re = noue.recompiler.ReParser()
-		#for a in ast:
-		#	re.toline(a, 0)
-		#	print()
-		#
-		#print()
-		#for s in me.compiler.globalvarconverter.staticvarcreatecode:
-		#	re.toline(s, 0)
-		#for s in me.compiler.globalvarconverter.staticvarinitcode:
-		#	re.toline(s, 0)
-		#for s in me.compiler.conststring.statements:
-		#	re.toline(s, 0)
-
+		module = me.parse_source(src, filename, lineno, encoding or me.encoding)
 		
 		compiler = deepcopy(me.compiler)
 		mod = compiler.compile(module)	
@@ -58,7 +73,7 @@ class CCompiler:
 		return mod
 		
 		
-	def parse(me, src, filename, lineno, encoding):
+	def parse_source(me, src, filename, lineno, encoding):
 		parser = deepcopy(me.parser)
 		p = parser.parse_global()
 		
@@ -68,31 +83,24 @@ class CCompiler:
 		
 		next(p)
 		#with warnings.catch_warnings(record = True) as rec:
-		##with warnings.catch_warnings():
 		#	warnings.filterwarnings('always')
 		if 1:
 			try:
-				#p.send([START(filename)])
-				##warnings.filterwarnings('ignore', category=NoaffectStatement)
 				for t in tok:
-				#	if t and t[0].type == 'MC':
-				#		#import pdb;pdb.set_trace()
-				#		p.throw(parser.InsertComment(t[0]))
-				#		continue
+					if t and t[0].type == 'MC':
+						p.throw(parser.InsertComment(t[0]))
+						continue
 					p.send(t)
-					#print('com', rec)
 				p.send([END(filename)])
+				p.throw(parser.FileEnd())
 			except StopIteration as stop:
 				module = stop.args[0]
 			
 		#for w in rec:
 		#	print(w.message.message())
-		for e in module.errors:
-			print(e.message())
-			print()
 
 		return module
-		
+	
 if __name__ == '__main__':
 	compiler = CCompiler()
 	
@@ -113,7 +121,7 @@ if __name__ == '__main__':
 	}
 	"""
 	co = compiler.compile_source(src, __file__, lno)
-	p = compiler.parse(src, __file__, lno, None)
+	p = compiler.parse_source(src, __file__, lno, None)
 	ast = compiler.compiler.dump(p)
 	#for node in pyast.walk(ast[0]):
 	#	if not hasattr(node, 'lineno'):

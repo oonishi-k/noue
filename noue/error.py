@@ -71,7 +71,7 @@ class PreprocessError(NoueWarning):
 	pass
 
 	
-class IncludeFileNotFound(PreprocessError):
+class IncludeFileNotFound(NoueError):
 	pass
 
 
@@ -195,3 +195,8 @@ class Integer2PointerConversion(NoueWarning):
 					type=restype.name)
 		NoueWarning.__init__(me, pos, msg)
 		
+
+class InsertPySourceError(NoueWarning):
+	def __init__(me, commtoken):
+		msg = '不正なpythonコードです。'
+		NoueWarning.__init__(me, commtoken, msg)
