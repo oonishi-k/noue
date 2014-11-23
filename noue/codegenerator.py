@@ -67,7 +67,7 @@ class ConstStringSolution:
 		## $CONSTSTRING[num] = c_char_p(b"<文字列>")
 		value = value=pyast.Call(
 							func=pyast.Name(
-								id='c_char_p',ctx=pyast.Load(),
+								id='$T$c_char_p',ctx=pyast.Load(),
 								lineno=exp.first_token.line, col_offset=exp.first_token.col),
 							args=[pyast.Bytes(s=exp.value,
 											lineno=exp.first_token.line,
@@ -156,16 +156,18 @@ class GlobalVarConverter:
 				
 		me.staticvarcreatecode += [ast]
 		
-		if stmt.initexp:
-			value = me.exprconverter.construct(stmt.restype, stmt.initexp, stmt.first_token)
-		else:
-			value = copy = pyast.Call(
-							func=me.typeconverter.typecall(stmt.restype, stmt.first_token),
-							args=[],
-							keywords=[],
-							starargs=None,
-							kwargs=None,
-							lineno = stmt.first_token.line,col_offset=stmt.first_token.col)
+		value = me.exprconverter.construct(stmt.restype, stmt.initexp, stmt.first_token)
+		#if stmt.initexp:
+		#	value = me.exprconverter.construct(stmt.restype, stmt.initexp, stmt.first_token)
+		#else:
+		#	value = copy = pyast.Call(
+		#					func=me.typeconverter.typecall(stmt.restype, stmt.first_token),
+		#					args=[],
+		#					keywords=[],
+		#					starargs=None,
+		#					kwargs=None,
+		#					lineno = stmt.first_token.line,col_offset=stmt.first_token.col)
+							
 		ptr = copy = pyast.Call(
 						func=pyast.Name(
 									id='$pointer',ctx=pyast.Load(),
@@ -194,7 +196,7 @@ class GlobalVarConverter:
 					value=value,
 					lineno=stmt.first_token.line, col_offset=stmt.first_token.col
 				)
-				
+		ast.file = stmt.first_token.file
 		me.staticvarinitcode += [ast]
 		
 		
@@ -214,6 +216,7 @@ class GlobalVarConverter:
 	LocalVarStmt.__getuniqueid = __getuniqueid
 	
 	
+	
 
 	
 	def compile(me, stmt):
@@ -224,7 +227,7 @@ class GlobalVarConverter:
 	def __compile(stmt, me):
 		id = stmt.id
 		me.globalinit(stmt, id)
-
+	
 		return []
 	GlobalVarStmt.__compile = __compile
 	
@@ -271,6 +274,11 @@ class GlobalVarConverter:
 		return [ast]
 	
 	LocalStaticStmt.__compile = __compile	
+	
+	def __compile(stmt, me):
+		return []
+	LocalExtern.__compile = __compile	
+	
 	
 	def __compile(stmt, me):
 		id = stmt.id
@@ -396,7 +404,9 @@ class ExpressionConverter:
 				else:
 					values = [me.compile(me.toright(init))]
 			else:
-				values = [me.compile(me.toright(init))]
+				#values = [me.compile(me.toright(init))]
+				value = me.compile(me.toright(init))
+				return me.typeconverter.fromright(init.restype, value, init.first_token)
 		elif init is None:
 			ast = me.uninitiallized(restype, token)
 			#size = me.typeconverter.sizeof(restype)
@@ -436,7 +446,7 @@ class ExpressionConverter:
 			#		 lineno = token.line,col_offset=token.col)
 			return ast
 
-			
+		
 		typeast = me.typeconverter.typecall(right_type(restype), token)
 		ast = pyast.Call(func=typeast,
 				args=values,keywords=[],
@@ -1008,9 +1018,11 @@ class TypeConverter:
 			if p == pointer_type(const_type(TD_VOID)):
 				import pdb;pdb.set_trace()
 			dict[p.__typename] = me.cnvtype(p)
-			
+			dict[p.__typename[2:]] = me.cnvtype(p)
+		me.primitives = []
 		for t in me.usertypes:
 			dict[t.__typename] = me.cnvtype(t)
+		me.usertypes = []
 		
 	def sizeof(me, restype):
 		if is_errortype(restype): return 0
@@ -1028,6 +1040,14 @@ class TypeConverter:
 		#return td._type.__toright(ast)
 		return ast
 	td_primitive.__fromright = __fromright
+	
+	def __fromright(td, me, value, token):
+		return me.fromright(td._type, value, token)
+	td_const.__fromright = __fromright
+	
+	def __fromright(td, me, value, token):
+		return me.fromright(td._type, value, token)
+	td_leftvalue.__fromright = __fromright
 	
 	def __fromright(td, me, value, token):
 		ast = pyast.Call(
@@ -1078,7 +1098,7 @@ class TypeConverter:
 	TD_CVOIDP.__typename = '$T$c_voidp'
 	
 	def __typecall(restype, me, token):
-		return me.typecall(restype._type)
+		return me.typecall(restype._type, token)
 	td_const.__typecall = __typecall
 		
 	def __typecall(restype, me, token):
@@ -1094,6 +1114,7 @@ class TypeConverter:
 						lineno = token.line,col_offset=token.col
 			)
 	td_struct.__typecall = __typecall
+	td_union.__typecall = __typecall
 	
 	def __typecall(restype, me, token):
 			res  = me.typecall(restype.prototype.restype, token)
@@ -1163,7 +1184,7 @@ class TypeConverter:
 		
 	_type_descriptor.__cnvtype = __cnvtype
 		
-	TD_WCHAR.__typename    = '$T$wchar'
+	TD_WCHAR.__typename    = '$T$wchar_t'
 	TD_CHAR.__typename     = '$T$char'
 	TD_SHORT.__typename    = '$T$short'
 	TD_INT.__typename      = '$T$int'
@@ -1179,7 +1200,7 @@ class TypeConverter:
 	
 	TD_FLOAT.__typename     = '$T$float'
 	TD_DOUBLE.__typename    = '$T$double'
-
+	TD_VOID.__typename      = '$T$void'
 		
 
 	TD_WCHAR.__ctype    = pyct.c_wchar
@@ -1200,6 +1221,7 @@ class TypeConverter:
 	TD_DOUBLE.__ctype    = pyct.c_double
 	TD_VOIDP.__ctype     = pyct.c_voidp
 	TD_CVOIDP.__ctype    = pyct.c_voidp
+	TD_VOID.__ctype      = None
 	pointer_type(TD_CHAR).__ctype = pyct.c_char_p
 	pointer_type(const_type(TD_CHAR)).__ctype = pyct.c_char_p
 	
@@ -1221,8 +1243,10 @@ class TypeConverter:
 			ctype._fields_ = fields
 		return ctype
 	td_struct.__cnvtype = __cnvtype
+	td_union.__cnvtype = __cnvtype
 	
-	td_enum.__ctype = pyct.c_int
+	td_enum.__ctype    = TD_INT.__ctype
+	td_enum.__typename = TD_INT.__typename
 	
 	def __cnvtype(td, me):
 		try:
@@ -1236,6 +1260,16 @@ class TypeConverter:
 	td_sized_array.__cnvtype = __cnvtype
 	
 	
+	def __cnvtype(td, me):
+		try:
+			return td.__ctype
+		except AttributeError:
+			pass
+		ctype = me.cnvtype(td._type)
+		ctype = ctype*1000
+		td.__ctype = ctype
+		return ctype
+	td_unsized_array.__cnvtype = __cnvtype
 
 	
 	def __cnvtype(td, me):
@@ -1248,6 +1282,19 @@ class TypeConverter:
 		td.__ctype = ctype
 		return ctype
 	td_pointer.__cnvtype = __cnvtype
+	
+	def __cnvtype(td, me):
+		try:
+			return td.__ctype
+		except AttributeError:
+			pass
+		restype = me.cnvtype(td.prototype.restype)
+		argtypes = [me.cnvtype(arg.restype) for arg in td.prototype.args]
+		ctype = pyct.CFUNCTYPE(restype, *argtypes)
+		td.__ctype = ctype
+		return ctype
+	td_funcptr.__cnvtype = __cnvtype
+
 	
 	
 	def __cnvtype(td, me):
@@ -1489,6 +1536,12 @@ class ExecodeGeneratorLLP64:
 		me.exprconverter = ExpressionConverter(me.typecnverter, me.conststring)
 		me.globalvarconverter = GlobalVarConverter(me.typecnverter, me.exprconverter)
 		
+		me.import_vars = {}
+		me.export_vars = {}
+		me.import_funcs = {}
+		me.export_funcs = {}
+		
+		
 	def sizeof(me, restype):
 		return me.typecnverter.sizeof(restype)
 		
@@ -1519,7 +1572,8 @@ class ExecodeGeneratorLLP64:
 		
 		import ctypes
 		
-		me.typecnverter.setnames(pymod.__dict__)
+		#print(me.typecnverter.usertypes)
+		#me.typecnverter.setnames(pymod.__dict__)
 		
 		set_goto.goto  = '$GOTO'
 		set_goto.label = '$LABEL'
@@ -1536,11 +1590,22 @@ class ExecodeGeneratorLLP64:
 		
 		for stmt in module.statements:
 			codes = me.compile(stmt)
+			me.typecnverter.setnames(pymod.__dict__)
 			if codes:
 				code = compile(pyast.Module(body=codes), stmt.first_token.file, 'exec')
 				exec(code, pymod.__dict__)
 				
 		pymod.__dict__['$G'] = pymod
+		
+		#for ex,tp in me.export_vars.items():
+		#	print(ex, tp)
+		#for ex,tp in me.import_vars.items():
+		#	print(ex, tp)
+		#	
+		#for ex,tp in me.export_funcs.items():
+		#	print(ex, tp)
+		#for ex,tp in me.import_funcs.items():
+		#	print(ex, tp)
 		
 			
 		#pymod.c_char_p = ctypes.c_char_p
@@ -1552,16 +1617,19 @@ class ExecodeGeneratorLLP64:
 		
 		code = compile(pyast.Module(body=me.globalvarconverter.staticvarcreatecode), __file__, 'exec')
 		exec(code, pymod.__dict__)
-		code = compile(pyast.Module(body=me.globalvarconverter.staticvarinitcode), __file__, 'exec')
-		exec(code, pymod.__dict__)
+		#code = compile(pyast.Module(body=me.globalvarconverter.staticvarinitcode), __file__, 'exec')
+		#exec(code, pymod.__dict__)
 		code = compile(pyast.Module(body=me.conststring.statements), __file__, 'exec')
 		exec(code, pymod.__dict__)
+		for s in me.globalvarconverter.staticvarinitcode:
+			code = compile(pyast.Module(body=[s]), s.file, 'exec')
+			exec(code, pymod.__dict__)
 
 		return pymod
 	ModuleFile.__compile = __compile
 	
 	def dump(me, module):
-		return module.__dump(me)
+		return module.__dump(me) + me.globalvarconverter.staticvarcreatecode + me.globalvarconverter.staticvarinitcode
 		
 	def __dump(module, me):
 		module.__current_vars  = {}
@@ -1589,6 +1657,13 @@ class ExecodeGeneratorLLP64:
 	TypedefStmt.__compile = __compile
 	
 	def __compile(stmt, me):
+		if stmt.id not in me.export_funcs:
+			res  = me.typecnverter.cnvtype(stmt.prototype.restype)
+			if stmt.prototype.args is not None:
+				args = [me.typecnverter.cnvtype(arg.restype) for arg in stmt.prototype.args]
+			else:
+				args = None
+			me.import_funcs[stmt.id] = (res, args)
 		return []
 	DeclareFunctionStmt.__compile = __compile
 	
@@ -1670,6 +1745,15 @@ class ExecodeGeneratorLLP64:
 	def __compile(func, me):
 		if func.haserror:
 			return []
+			
+		#import pdb;pdb.set_trace()
+		
+		res  = me.typecnverter.cnvtype(func.prototype.restype)
+		args = [me.typecnverter.cnvtype(arg.restype) for arg in func.prototype.args]
+		me.export_funcs[func.id] = (res, args)
+		
+		if func.id in me.import_funcs:	
+			del me.import_funcs[func.id]
 		
 		_scope.__init(func, me)
 		func.__stack_size = 0
@@ -2264,7 +2348,6 @@ del __COUNT__
 		
 		body += forbody
 		body += scope.__escape(me)
-		scope.__popstack()
 		return body
 	For.__compile = __compile
 	
@@ -2292,9 +2375,26 @@ del __COUNT__
 		
 	CommentStmt.__compile = __compile
 	
+	
 	def __compile(stmt, me):
+		me.export_vars[stmt.id] = me.typecnverter.cnvtype(stmt.restype)
+		if stmt.id in me.import_vars:
+			del me.import_vars[stmt.id]
 		return me.globalvarconverter.compile(stmt)
-	_declareVarStmt.__compile = __compile
+	GlobalVarStmt.__compile = __compile
+		
+	def __compile(stmt, me):
+		if stmt.id not in me.export_vars:
+			me.import_vars[stmt.id] = me.typecnverter.cnvtype(stmt.restype)
+		return me.globalvarconverter.compile(stmt)
+	GlobalExtern.__compile = __compile
+	
+	def __compile(stmt, me):
+		me.export_vars[stmt.id] = me.typecnverter.cnvtype(stmt.restype)
+		if stmt.id in me.import_vars:
+			del me.import_vars[stmt.id]
+		return me.globalvarconverter.compile(stmt)
+	GlobalStaticStmt.__compile = __compile
 	
 	def __compile(stmt, me):
 		if stmt.id in stmt.parent.__current_vars:
@@ -2314,24 +2414,24 @@ del __COUNT__
 	
 	
 			
-	def __pushstack(stmt):
-		return stmt.parent.__pushstack()
-	_scope.__pushstack = __pushstack
-	
-	def __popstack(stmt):
-		return stmt.parent.__popstack()
-	_scope.__popstack = __popstack
-	
-	
-	def __pushstack(stmt):
-		ret = stmt.__stack_size
-		stmt.__stack_size += 1
-		return ret
-	DefineFunctionStmt.__pushstack = __pushstack
-	
-	def __popstack(stmt):
-		stmt.__stack_size -= 1
-	DefineFunctionStmt.__popstack = __popstack
+	#def __pushstack(stmt):
+	#	return stmt.parent.__pushstack()
+	#_scope.__pushstack = __pushstack
+	#
+	#def __popstack(stmt):
+	#	return stmt.parent.__popstack()
+	#_scope.__popstack = __popstack
+	#
+	#
+	#def __pushstack(stmt):
+	#	ret = stmt.__stack_size
+	#	stmt.__stack_size += 1
+	#	return ret
+	#DefineFunctionStmt.__pushstack = __pushstack
+	#
+	#def __popstack(stmt):
+	#	stmt.__stack_size -= 1
+	#DefineFunctionStmt.__popstack = __popstack
 	
 
 

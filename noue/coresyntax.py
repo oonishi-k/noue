@@ -571,10 +571,14 @@ class SyntaxCore:
 					warnings.warn(wan)
 				return True
 		elif is_pointer(ltype) and is_pointer(rtype):
-			if ltype == TD_VOIDP or rtype == TD_VOIDP:
+			if ltype == TD_CVOIDP:
 				pass
-			elif ltype == TD_CVOIDP:
+			elif ltype == TD_VOIDP and not is_const(rtype._type):
 				pass
+			elif rtype == TD_VOIDP:
+				return True
+			elif rtype == TD_CVOIDP and is_const(ltype):
+				return True
 			elif target_type(ltype) == target_type(rtype):
 				pass
 			elif strip_options(target_type(ltype)) == target_type(rtype):
@@ -611,7 +615,7 @@ class SyntaxCore:
 			return me.errorexp(left.first_token)
 		try:
 			require_cast = me._assign_type_check(left.restype, right, left.first_token)
-			if require_cast:
+			if require_cast or strip_options(left.restype) != strip_options(right.restype) :
 				 right = me.implicit_cast(scope, left.restype, right)
 		except NoueError as err:
 			warnings.warn(err)
@@ -889,8 +893,10 @@ class SyntaxCore:
 	def implicit_cast(me, scope, restype, value):
 		if is_numeric(value.restype) and is_numeric(restype):
 			return ImplicitCast(restype, value)
-		#if is_pointer(value.restype) and is_pointer(restype):
-		#	return ImplicitCast(restype, value, first_token)
+		elif is_pointer(value.restype) and is_pointer(restype):
+			return ImplicitCast(restype, value)
+		elif is_pointer(restype) and isinstance(value, ConstInteger) and value.value == 0:
+			return ImplicitCast(restype, value)
 			
 		warnings.warn(CastError(value.first_token, restype, value.restype))
 		return me.errorexp(value.first_token)
@@ -1044,7 +1050,7 @@ class SyntaxCore:
 				return res
 			elif isinstance(stmt, _function_stmt):
 				#return funcid(stmt.prototype, id)
-				return FunctionAddress(stmt.prototype, id)
+				return ConstFunctionAddress(stmt.prototype, id)
 			elif isinstance(stmt, TypedefStmt):
 				return stmt.restype
 			else:
@@ -1249,7 +1255,7 @@ class SyntaxCore:
 			#print(init, init.restype, init.first_token.line_string)
 			try:
 				require_cast = me._assign_type_check(stmt.restype, init, first_token)
-				if require_cast:
+				if require_cast or strip_options(stmt.restype) != strip_options(init.restype):
 					init = me.implicit_cast(scope, stmt.restype, init)
 				if is_unsizedarray(stmt.restype) and is_sizedarray(init.restype):
 					typ = target_type(stmt.restype)
