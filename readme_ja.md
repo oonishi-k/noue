@@ -38,14 +38,14 @@ test.c:
 #include <stdio.h>
 
 typedef struct{
-	double x,y,z;
+	double x,y;
 }vector_t;
 
-vector_t V0 = {0,0,0};
+vector_t V0 = {0,0};
 
 double innerproduct(vector_t* l, vector_t* r)
 {
-	return l->x*r->x + l->y*r->y + l->z*r->z;
+	return l->x*r->x + l->y*r->y;
 }	
 
 vector_t sub(const vector_t* l, const vector_t* r)
