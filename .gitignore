@@ -43,6 +43,6 @@ Temporary Items
 .apdisk
 
 memo.txt
-noue/build/
+build/
 noue/__pycache__/
 
