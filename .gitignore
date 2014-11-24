@@ -43,6 +43,6 @@ Temporary Items
 .apdisk
 
 memo.txt
-build/lib/noue/
+build/lib/noue/__init__.py
 noue/__pycache__/
 
