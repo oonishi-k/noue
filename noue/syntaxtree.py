@@ -117,6 +117,8 @@ class td_leftvalue(_type_descriptor):
 
 class td_const(_type_descriptor):
 	def __init__(me, typ):
+		if not is_type(typ):
+			raise FatalError()
 		if isinstance(typ, td_leftvalue):
 			raise FatalError()
 		if isinstance(typ, td_const):
@@ -160,7 +162,20 @@ class td_unsized_array(td_array_base):
 	def name(me):
 		return me._type.name + '[]'
 		
+class td_varsized_array(td_array_base):
+	def __init__(me, typ, exp):
+		if isinstance(typ, td_leftvalue):
+			raise FatalError()
+		if not isinstance(exp, _expression):
+			raise FatalError()
+		td_array_base.__init__(me)
+		me._type = typ
+		me._size = exp
 		
+	@property
+	def name(me):
+		return me._type.name + '[~]'		
+
 		
 class td_sized_array(td_array_base):
 	def __init__(me, typ, size):
@@ -187,6 +202,12 @@ def unsizedarray_type(typ):
 	return unsizedarray_type.memo[typ]
 unsizedarray_type.memo = {}
 
+def varsizedarray_type(typ, size):
+	if is_lefttype(typ):
+		typ = right_type(typ)
+	return td_varsized_array(typ, size)
+
+
 	
 def is_array(typ):
 	typ = strip_options(typ)
@@ -195,6 +216,11 @@ def is_array(typ):
 def is_unsizedarray(typ):
 	typ = strip_options(typ)
 	return isinstance(typ, td_unsized_array)
+	
+def is_varsizedarray(typ):
+	typ = strip_options(typ)
+	return isinstance(typ, td_varsized_array)
+
 		
 def sizedarray_type(typ, size):
 	if is_lefttype(typ):
@@ -211,16 +237,16 @@ def sizedarray_type(typ, size):
 sizedarray_type.memo = {}
 
 
-class td_varsized_array(td_array_base):
-	def __init__(me, typ):
-		if isinstance(typ, td_leftvalue):
-			raise FatalError()
-		td_array_base.__init__(me)
-		me._type = typ
-
-	@property
-	def name(me):
-		return me._type.name + '[*]'
+#class td_varsized_array(td_array_base):
+#	def __init__(me, typ):
+#		if isinstance(typ, td_leftvalue):
+#			raise FatalError()
+#		td_array_base.__init__(me)
+#		me._type = typ
+#
+#	@property
+#	def name(me):
+#		return me._type.name + '[*]'
 
 
 
@@ -430,6 +456,12 @@ def argdecl(restype, name=''):
 	
 class func_prototype_descriptor(_node):
 	def __init__(me, restype, args):
+		if not is_type(restype):
+			raise FatalError()
+		if args:
+			for arg in args:
+				if not is_type(arg.restype):
+					raise FatalError()
 		me.restype = restype
 		me.args    = args
 		
@@ -551,6 +583,12 @@ class ConstInteger(_expression):
 		me.value = value
 		if type(me.value) != int:
 			raise FatalError()
+			
+
+class EnumValueExp(ConstInteger):
+	def __init__(me, value, token):
+		ConstInteger.__init__(me, TD_INT, value, token)
+		
 
 class ConstReal(_expression):
 	def __init__(me, restype, value, token):
@@ -851,6 +889,8 @@ class LocalVarStmt(_declareVarStmt):
 		
 class GlobalVarStmt(_declareVarStmt):
 	def __init__(me, restype, id, first_token, last_token):
+		#if id == 'in_t':
+		#	import pdb;pdb.set_trace()
 		_declareVarStmt.__init__(me, restype, id, first_token, last_token)
 		me.strage  = ''
 		me.initexp = None

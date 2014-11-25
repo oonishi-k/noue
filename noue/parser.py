@@ -619,6 +619,8 @@ class Parser:
 			
 		yield from me.seek(1)
 		#return scope.GetEnumTid(name)
+		if not is_type(restype):
+			raise FatalError()
 		return restype
 
 
@@ -1266,7 +1268,8 @@ class Parser:
 				else:
 					restype = sizedarray_type(restype, size)
 			except NotConstInteger as nci:
-				raise ## 未対応。可変長配列
+				#raise ## 未対応。可変長配列
+				restype = varsizedarray_type(restype, size)
 		return restype
 		
 	
@@ -1885,7 +1888,7 @@ class Parser:
 						try:
 							if me.cur.type == 'END':
 								break 
-							
+
 							## 不正なトークン
 							if me.cur.type != 'ID':
 								warnings.warn(ParseUnexpectedToken(me.cur))

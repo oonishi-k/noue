@@ -335,9 +335,29 @@ class ExpressionConverter:
 			res += [r]
 		return res
 
+	def uninitiallized_varsizedarray(me, restype, token):
+		typ  = me.typeconverter.typecall(strip_options(restype)._type, token)
+		size = me.compile(me.toright(restype._size))
+		call = pyast.BinOp(
+			left=typ,
+			op=pyast.Mult(),
+			right=size,
+			lineno=token.line,col_offset=token.col)
+		return pyast.Call(
+					func=call,
+					args=[],
+					keywords=[],
+					starargs=None,
+					kwargs=None,
+					lineno=token.line,col_offset=token.col)
+
+		
+		
 	def uninitiallized(me, restype, token):
+			if is_varsizedarray(restype):
+				return me.uninitiallized_varsizedarray(restype, token)
 			size = me.typeconverter.sizeof(restype)
-			value = value=pyast.Call(
+			value =pyast.Call(
 								func=pyast.Name(
 									id='$c_buffer',
 									ctx=pyast.Load(),
@@ -1069,6 +1089,7 @@ class TypeConverter:
 		return ast
 	td_sized_array.__fromright = __fromright
 	td_unsized_array.__fromright = __fromright
+	td_varsized_array.__fromright = __fromright
 	
 	def __fromright(td, me, value, token):
 		value = me.fromright(TD_SIZE_T, value, token)
@@ -1174,6 +1195,7 @@ class TypeConverter:
 				lineno=token.line,col_offset=token.col)
 
 	td_unsized_array.__typecall = __typecall
+	td_varsized_array.__typecall = __typecall
 		
 	def cnvtype(me, typ):
 		try:
@@ -1634,6 +1656,10 @@ class ExecodeGeneratorLLP64:
 	#	raise FatalError()
 	#_statement.__compile = __compile
 	
+	def __compile(stmt, me):
+		return []
+	DummyStmt.__compile = __compile
+	
 	def __compile(module, me):
 		#pymod = types.ModuleType(module.name)
 		
@@ -1700,6 +1726,8 @@ class ExecodeGeneratorLLP64:
 
 		return pymod
 	ModuleFile.__compile = __compile
+	
+	
 	
 	def dump(me, module):
 		return module.__dump(me) + me.globalvarconverter.staticvarcreatecode + me.globalvarconverter.staticvarinitcode
@@ -2170,6 +2198,9 @@ else:
 		ast.body   = me.compile(stmt.body)
 		ast.orelse = me.compile(stmt.orelse)
 		
+		
+		if ast.body == []:
+			ast.body = [pyast.Pass(lineno=stmt.last_token.line, col_offset=stmt.last_token.col)]
 		return [ast]
 	If.__compile = __compile
 	
@@ -2198,6 +2229,9 @@ while 1:
 		
 		#for s in stmt.body.statements:
 		ast.body   = me.compile(stmt.body)
+		
+		if ast.body == []:
+			ast.body = [pyast.Pass(lineno=scope.last_token.line, col_offset=scope.last_token.col)]
 		
 		return [ast]
 	While.__compile = __compile
@@ -2351,6 +2385,9 @@ del __COUNT__
 		
 		#for s in stmt.body.statements:
 		dowhilebody[1].body   = me.compile(scope.body)			
+		
+		if dowhilebody[1].body == []:
+			dowhilebody[1].body = [pyast.Pass(lineno=scope.last_token.line, col_offset=scope.last_token.col)]
 
 		
 		return dowhilebody
@@ -2418,6 +2455,9 @@ del __COUNT__
 		
 		#for s in stmt.body.statements:
 		forbody[1].body   = me.compile(scope.body)
+		
+		if forbody[1].body == []:
+			forbody[1].body = [pyast.Pass(lineno=scope.last_token.line, col_offset=scope.last_token.col)]
 		
 		body += forbody
 		body += scope.__escape(me)

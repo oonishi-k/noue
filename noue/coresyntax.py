@@ -133,7 +133,8 @@ class SyntaxCore:
 		return exp.__eval_constinteger(me)
 	
 	def __eval_constinteger(exp, me):
-		import pdb;pdb.set_trace()
+		#import pdb;pdb.set_trace()
+		#print(exp.first_token, exp.first_token.file)
 		raise NotConstInteger(exp)
 	_expression.__eval_constinteger = __eval_constinteger
 	
@@ -227,7 +228,7 @@ class SyntaxCore:
 		ltype = strip_options(ltype)
 		rtype = strip_options(rtype)
 		if not is_numeric(ltype) or  not is_numeric(rtype):
-			raise FatalErro()
+			raise FatalError()
 			
 		if ltype == rtype:
 			return ltype
@@ -244,7 +245,7 @@ class SyntaxCore:
 		if is_unsigned(rtype):
 			return rtype
 			
-		raise FatalErro()
+		raise FatalError()
 		
 	def _addsub(me, op, left, right):
 		ltype = left.restype
@@ -1042,6 +1043,9 @@ class SyntaxCore:
 				elif isinstance(stmt, LocalVarStmt):
 					res = VarLocal(stmt.restype, id)
 				else:
+					#print(stmt, scope)
+					#print(stmt.first_token, stmt.first_token.file)
+					#print(id, id.file)
 					raise FatalError()
 				res.declareat = weakref.proxy(stmt)
 				return res
@@ -1054,6 +1058,8 @@ class SyntaxCore:
 				return ConstFunctionAddress(stmt.prototype, id)
 			elif isinstance(stmt, TypedefStmt):
 				return stmt.restype
+			elif isinstance(stmt, me.EnumValue):
+				return EnumValueExp(stmt.n, id)
 			else:
 				raise
 		return me.getid(scope.parent, id)
@@ -1081,8 +1087,11 @@ class SyntaxCore:
 				return ConstFunctionAddress(stmt.prototype, id)
 			elif isinstance(stmt, TypedefStmt):
 				return stmt.restype
+			elif isinstance(stmt, me.EnumValue):
+				return EnumValueExp(stmt.n, id)
 			else:
-				raise
+				print(stmt)
+				raise FatalError
 		return None
 			
 	ModuleFile.__getid = __getid
@@ -1203,8 +1212,8 @@ class SyntaxCore:
 		if not isinstance(strage, str):
 			raise FatalError()
 			
-		if type(restype) == tuple:
-			import pdb;pdb.set_trace()
+		#if type(restype) == tuple:
+		#	import pdb;pdb.set_trace()
 		
 		if isinstance(scope, _execscope):
 			if strage == 'extern':
@@ -1679,7 +1688,7 @@ class SyntaxCore:
 	
 	def __getenum(scope, me, id):
 		if id.value in scope.__enums:
-			td = scope.__enums[id.value]
+			td = scope.__enums[id.value].restype
 			return td
 		elif scope.parent is not None:
 			return me.getenum(scope.parent, id)

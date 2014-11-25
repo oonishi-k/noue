@@ -28,22 +28,24 @@ class CCompiler:
 		me.ignore_warnings = ignore_warnings
 		
 	def compile(me, file, encoding=None, printerror=True):
-		with warnings.catch_warnings(record=True) as r:
-			for iw in me.ignore_warnings:
-				warnings.filterwarnings('ignore', category=iw)
+		try:
+			with warnings.catch_warnings(record=True) as r:
+				for iw in me.ignore_warnings:
+					warnings.filterwarnings('ignore', category=iw)
 
-			with open(file, encoding=encoding or me.encoding) as f:
-				src = f.read()
-				res = me.compile_source(src, file, 1, encoding=encoding or me.encoding)
-
-		if printerror:
-			for w in r:
-				print(w.message.message())
-				print()
-		else:
-			for w in r:
-				warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
-		return res
+				with open(file, encoding=encoding or me.encoding) as f:
+					src = f.read()
+					res = me.compile_source(src, file, 1, encoding=encoding or me.encoding)
+			return res
+		finally:
+			if printerror:
+				for w in r:
+					print(w.message.message())
+					print()
+			else:
+				for w in r:
+					warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)#, r.module, r.registry)
+		
 				
 	def parse(me, file, encoding=None, printerror=True):
 		with warnings.catch_warnings(record=True) as r:
