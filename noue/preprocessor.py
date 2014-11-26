@@ -153,22 +153,40 @@ _macroFile = lambda t: [TokenDoubleQuote(repr(t.file), '', t.file, t.line, t.col
 
 	
 class Preprocessor:
-	default_include = os.path.abspath(os.path.join(os.path.dirname(__file__), 'include'))
 	default_encoding= 'utf8'
-	def __init__(me, tok, includes=[], ignore_default_include=False):
+	def __init__(me, tok, includes=[], D='', predefined=''):
 		me.tok = tok
 		me._macro_simple  = {}
 		me._macro_complex = {}
 		me._macro_special = {}
+		me._macro_undef   = {}
+		me._macro_pos     = {}
 		me._macro_special['__LINE__'] = _macroLine
 		me._macro_special['__FILE__'] = _macroFile
 		
-		if ignore_default_include:
-			me.includes = [me.default_include] + includes
-		else:
-			me.includes = [me.default_include] + includes
-		me.dir_encodings = {me.default_include:'utf8'}
+		me.includes = includes
+		#if ignore_default_include:
+		#	me.includes = includes
+		#else:
+		#	me.includes = [me.default_include] + includes
+		#me.dir_encodings = {me.default_include:'utf8'}
+		me.dir_encodings = {}
 		me.default_encoding = me.default_encoding
+		
+		for symbol in D.split():
+			token = list(me.tok.tokenize(symbol, '', 0, ''))[0][0]
+			me._macro_simple[token.value] = []
+
+		it = me.tok.tokenize(predefined, '$SYSTEM', 1, '')
+		for t in it:
+			if not t:
+				continue
+
+			[_ for _ in me.read(me, t, it)]
+
+		
+			
+			
 		return
 		
 	def read_line(me, it):
@@ -267,7 +285,7 @@ class Preprocessor:
 
 		if not me.has_macro(module, id):
 			msg = 'マクロ"%s"は定義されていません'%id.value
-			warnings.warn(PPUserWarning(tokens[0], msg))
+			warnings.warn(PreprocessWarning(tokens[0], msg))
 			return
 			
 		module._macro_undef[id.value] = tokens[0]
@@ -484,7 +502,10 @@ class Preprocessor:
 			
 		id = tokens[0]
 		if id.value in me._macro_simple:
-			t = copy_tokens(module._macro_simple[id.value][1], id, module._macro_simple[id.value][0])
+			if me._macro_simple[id.value]:
+				t = copy_tokens(me._macro_simple[id.value][1], id, me._macro_simple[id.value][0])
+			else:
+				t = []
 			yield from me.yield_tokens(module, t + tokens[1:], it)
 			return
 		if id.value in me._macro_complex:
@@ -821,7 +842,9 @@ typedef Py_intptr_t     Py_ssize_t;
 
 #undef TESTAAA
 
-
+#if PRE
+#warning hello
+#endif
 
 X(int *) TESTAAA(int n)
 {
@@ -835,15 +858,25 @@ X(int *) TESTAAA(int n)
 	
 	class ModDummy:
 		pass
+		
 	
+	t = Tokenizer().tokenize('test', '', 0, '')
+	#for s in t:
+	#	print(s)
+	#exit()
+	predefined = '''
+#define PRE 0
+'''
 	pp = Preprocessor(Tokenizer(), includes=[r'C:\MyDocument\home\work\Python-3.4.1\Python-3.4.1\Include',
-	                                         r'C:\MyDocument\home\work\Python-3.4.1\Python-3.4.1\PC'])
+	                                         r'C:\MyDocument\home\work\Python-3.4.1\Python-3.4.1\PC'],
+						D='',
+						predefined=predefined)
 	it = pp.proccess(src, file, lno)
 	rec = []
 	with warnings.catch_warnings(record=True) as rec:
 	#with warnings.catch_warnings() as rec:
-		warnings.filterwarnings('error', category=NoueError)
-		warnings.filterwarnings('error', category=PreprocessError)
+		#warnings.filterwarnings('error', category=NoueError)
+		#warnings.filterwarnings('error', category=PreprocessError)
 		for t in it:
 			#print(t)
 			if t:

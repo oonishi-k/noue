@@ -732,6 +732,9 @@ class Parser:
 			id = copy_tokens([id], id)[0]
 			id.value = 'long ' + me.cur.value
 			yield from me.seek()
+		if id.value in ('long', 'short', 'long long') and me.cur.value == 'int':
+			yield from me.seek()
+		
 			
 
 		td = me.compiler.getid(scope, id)
@@ -800,9 +803,9 @@ class Parser:
 				#yield from me.seek()
 				#tid = me.compiler.errortype()
 				raise NotTypeDescriptor(me.cur)
-
-		while me.cur.type in Options:
-			if me.cur.type in _strage:
+		
+		while me.cur.value in Options:
+			if me.cur.value in _strage:
 				if not has_strage:
 					warnings.warn(SemanticError(me.cur, 'この位置の%s指定は不正です。'%me.cur.value))
 				strage = me.cur.value

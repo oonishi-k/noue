@@ -1030,7 +1030,7 @@ class TypeConverter:
 			TD_UINT, TD_ULONG, TD_UCHAR, TD_USHORT, TD_ULONGLONG, 
 			TD_SIZE_T, TD_WCHAR, TD_DOUBLE, TD_FLOAT,
 			pointer_type(TD_CHAR), pointer_type(const_type(TD_CHAR)),
-			TD_VOIDP, TD_CVOIDP
+			TD_VOIDP, TD_CVOIDP, TD_VOID
 		]
 		
 	def setnames(me, dict):
@@ -2441,7 +2441,10 @@ del __COUNT__
 		forbody[0].targets[0].id = system_count_var_id
 		forbody[0].value.func = me.typecnverter.typecall(TD_INT, scope.first_token)
 			
-		test = me.exprconverter.compile(me.exprconverter.toright(scope.test))
+		if scope.test:
+			test = me.exprconverter.compile(me.exprconverter.toright(scope.test))
+		else:
+			test = pyast.Num(n=1, lineno=scope.first_token.line, col_offset=scope.first_token.col)
 		
 		forbody[1].test.value.elts[0].test.value.id = system_count_var_id
 		forbody[1].test.value.elts[0].body   = me.exprconverter.compile(scope.incl)

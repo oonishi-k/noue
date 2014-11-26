@@ -64,10 +64,10 @@ class TokenizeError(NoueError):
 		pos = CodePositional(file, line, col, line_string)
 		NoueError.__init__(me, pos, msg)
 		
-class PreprocessError(NoueError):
+class PreprocessError(NoueWarning):
 	pass
 	
-class PreprocessError(NoueWarning):
+class PreprocessWarning(NoueWarning):
 	pass
 
 	

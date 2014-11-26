@@ -10,7 +10,7 @@ void* bsearch(void*, void*, size_t, size_t, int(*)(void*,void*));
 int abs(int);
 void memcpy(void*, const void*, size_t);
 int memcmp(const void*, const void*, size_t);
-int memset(void*, int value, size_t size);
+void* memset(void*, int value, size_t size);
 int isdigit(int);
 int isalpha(int);
 int isnan(double);
@@ -19,6 +19,6 @@ double atan2(double, double);
 double sin(double);
 double cos(double);
 double tan(double);
-const char* getenv(const char*);
+char* getenv(const char*);
 
 #endif

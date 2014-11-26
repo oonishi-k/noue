@@ -861,6 +861,8 @@ class SyntaxCore:
 		return Index(owner, index, last_token)
 		
 	def cast(me, scope, restype, value, first_token):
+		if restype == TD_VOID:
+			return value
 		if isinstance(value, ConstInteger) \
 			and value.value == 0:
 				return Cast(restype, value, first_token)
