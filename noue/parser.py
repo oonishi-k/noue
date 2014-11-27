@@ -1874,10 +1874,10 @@ class Parser:
 		
 				
 				
-	def parse_global(me, name=''):
+	def parse_global(me, filename):
 		#compileerrors = []
 		try:
-			me.module = me.compiler.modulefile(name)
+			me.module = me.compiler.modulefile(filename)
 			yield from me.load()
 			if me.cur.type == 'END':
 				return me.module

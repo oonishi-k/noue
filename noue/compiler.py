@@ -8,6 +8,7 @@ try:
 	from .parser       import *
 	from .coresyntax   import *
 	from .codegenerator import *
+	from .savecache     import *
 except SystemError:
 	import imp
 	noue = imp.load_source('noue', './__init__.py')
@@ -16,6 +17,7 @@ except SystemError:
 	from noue.parser       import *
 	from noue.coresyntax   import *
 	from noue.codegenerator import *
+	from noue.savecache     import *
 
 class CompilerBase:
 	default_include = [os.path.abspath(os.path.join(os.path.dirname(__file__), 'include'))]
@@ -93,7 +95,7 @@ class CompilerBase:
 		
 	def parse_source(me, src, filename, lineno, encoding):
 		parser = deepcopy(me.parser)
-		p = parser.parse_global()
+		p = parser.parse_global(filename)
 		
 		preprocessor = deepcopy(me.preprocessor)
 		
@@ -118,6 +120,20 @@ class CompilerBase:
 		#	print(w.message.message())
 
 		return module
+		
+	def savecache(me, pymod, cachename = ''):
+		s = caches(pymod)
+		import os.path
+		if not cachename:
+			cachename = os.path.splitext(pymod.__file__)[0] + '.noue_cache'
+		with open(cachename, 'wb') as f:
+			f.write(s)
+		return
+		
+	def loadcache(me, cachename):
+		with open(cachename, 'rb') as f:
+			s = f.read()
+		return loads(s)
 		
 		
 class GCC(CompilerBase):
@@ -394,9 +410,13 @@ if __name__ == '__main__':
 	lno = inspect.currentframe().f_lineno+1
 	src = r"""
 	#include <stdio.h>
+	#include <string.h>
 	int G[3];
-	int test(int n)
+	char buffer[256];
+	int test(int n, char* p)
 	{	
+		//const char* p = "";
+		sprintf(buffer, "test%s\n", p);
 		for(int i=0; i<n+G[0]; ++i){
 			printf("HelloWorld %d\n", i);
 			fflush(stdout);
@@ -421,6 +441,8 @@ if __name__ == '__main__':
 	import recompiler
 	re = recompiler.ReParser()
 	re.toline(ast[0], 0)
+	re.toline(ast[1], 0)
+	re.toline(ast[2], 0)
 	
 	print()
 	for s in compiler.compiler.globalvarconverter.staticvarcreatecode:
@@ -431,6 +453,7 @@ if __name__ == '__main__':
 		re.toline(s, 0)
 
 	from ctypes import*
+	co.sprintf= cdll.msvcrt.sprintf
 	co.printf = cdll.msvcrt.printf
 	co.fflush = cdll.msvcrt.fflush
 	cdll.msvcrt.__iob_func.restype = c_voidp
@@ -439,10 +462,11 @@ if __name__ == '__main__':
 	co.stdout = c_voidp(__iob+48)
 	#co.stdout = c_voidp(__iob+8)
 	co.stderr = c_voidp(__iob+96)
-	res = co.test(c_int(8))
+	res = co.test(c_int(8), c_char_p(b''))
 	print(res)
-	res = co.test(c_int(8))
+	res = co.test(c_int(8), c_char_p(b''))
 	print(res)
-	res = co.test(c_int(8))
+	res = co.test(c_int(8), c_char_p(b''))
 	print(res)
+	compiler.savecache(co)
 	

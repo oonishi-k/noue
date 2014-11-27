@@ -51,13 +51,14 @@ class ConstStringSolution:
 
 		ast = pyast.Assign(
 					targets=[pyast.Name(
-								id='$CONSTSTRING',
+								id='$$CONSTSTRING',
 								ctx=pyast.Store())
 					],
 					value=value)
 		for n in pyast.walk(ast):
 			n.lineno=0
 			n.col_offset=0
+		ast.file = ''
 		return [ast] + me._conststrings
 		
 	def conststring(me, exp):
@@ -80,7 +81,7 @@ class ConstStringSolution:
 					targets=[
 						pyast.Subscript(
 							value=pyast.Name(
-								id='$CONSTSTRING',
+								id='$$CONSTSTRING',
 								ctx=pyast.Load(),
 								lineno=exp.first_token.line, col_offset=exp.first_token.col
 							),
@@ -96,13 +97,13 @@ class ConstStringSolution:
 					],
 					value=value,
 					lineno=exp.first_token.line, col_offset=exp.first_token.col)
-		
+		ast.file = exp.first_token.file
 		me._conststrings += [ast]
 		
 		## const文字列を呼び出す
 		res = pyast.Subscript(
 							value=pyast.Name(
-								id='$CONSTSTRING',
+								id='$$CONSTSTRING',
 								ctx=pyast.Load(),
 								lineno=exp.first_token.line, col_offset=exp.first_token.col
 							),
@@ -153,7 +154,7 @@ class GlobalVarConverter:
 					value=create,
 					lineno=stmt.first_token.line, col_offset=stmt.first_token.col
 				)
-				
+		ast.file = stmt.file
 		me.staticvarcreatecode += [ast]
 		
 		value = me.exprconverter.construct(stmt.restype, stmt.initexp, stmt.first_token)
@@ -523,7 +524,7 @@ class ExpressionConverter:
 	
 	def __compile(exp, me):
 		value=pyast.Attribute(
-			 value=pyast.Name(id='$G',
+			 value=pyast.Name(id='$$G',
 					ctx=pyast.Load(),
 					lineno=exp.first_token.line, col_offset=exp.first_token.col),
 			 attr=exp.id,
@@ -549,7 +550,7 @@ class ExpressionConverter:
 		#	raise
 		#print(exp.func, exp.func.id)
 		func=pyast.Attribute(
-			 value=pyast.Name(id='$G',
+			 value=pyast.Name(id='$$G',
 					ctx=pyast.Load(),
 					lineno=exp.first_token.line, col_offset=exp.first_token.col),
 			 attr=exp.func.id,
@@ -894,7 +895,7 @@ class ExpressionConverter:
 	
 	def __compile(exp, me):
 		value = pyast.Name(
-					id='$G',
+					id='$$G',
 					ctx=pyast.Load(),
 					lineno = exp.first_token.line,
 					col_offset=exp.first_token.col,
@@ -1671,6 +1672,10 @@ class ExecodeGeneratorLLP64:
 		
 		import ctypes
 		
+		for key,val in ctypes.__dict__.items():
+			if key[0] == '_': continue
+			pymod.__dict__['__builtins__'][key] = val
+		
 		#print(me.typecnverter.usertypes)
 		#me.typecnverter.setnames(pymod.__dict__)
 		
@@ -1687,14 +1692,18 @@ class ExecodeGeneratorLLP64:
 		pymod.__dict__['$addressof'] = ctypes.addressof
 		pymod.__dict__['$classalias']= classalias
 		
+		pymod.__dict__['__file__'] = module.filename
+		pycodes = []
 		for stmt in module.statements:
 			codes = me.compile(stmt)
+			pycodes += codes
 			me.typecnverter.setnames(pymod.__dict__)
 			if codes:
 				code = compile(pyast.Module(body=codes), stmt.first_token.file, 'exec')
 				exec(code, pymod.__dict__)
 				
-		pymod.__dict__['$G'] = pymod
+		pymod.__dict__['$$G'] = pymod
+		pymod.__dict__['$$PYTHONAST'] = pycodes
 		
 		#for ex,tp in me.export_vars.items():
 		#	print(ex, tp)
@@ -1713,14 +1722,20 @@ class ExecodeGeneratorLLP64:
 		#pymod.c_buffer    = ctypes.c_buffer
 		#pymod.pointer    = ctypes.pointer
 		#pymod.addressof    = ctypes.addressof
-		
-		code = compile(pyast.Module(body=me.globalvarconverter.staticvarcreatecode), __file__, 'exec')
-		exec(code, pymod.__dict__)
+		pymod.__dict__['$$CREATECODES'] = me.globalvarconverter.staticvarcreatecode \
+		                                  + me.conststring.statements
+		for s in pymod.__dict__['$$CREATECODES']:
+			code = compile(pyast.Module(body=[s]), s.file, 'exec')
+			exec(code, pymod.__dict__)
+		#code = compile(pyast.Module(body=me.globalvarconverter.staticvarcreatecode), __file__, 'exec')
+		#exec(code, pymod.__dict__)
 		#code = compile(pyast.Module(body=me.globalvarconverter.staticvarinitcode), __file__, 'exec')
 		#exec(code, pymod.__dict__)
-		code = compile(pyast.Module(body=me.conststring.statements), __file__, 'exec')
-		exec(code, pymod.__dict__)
-		for s in me.globalvarconverter.staticvarinitcode:
+		#code = compile(pyast.Module(body=me.conststring.statements), __file__, 'exec')
+		#exec(code, pymod.__dict__)
+		pymod.__dict__['$$INITCODES'] = me.globalvarconverter.staticvarinitcode
+		#for s in me.globalvarconverter.staticvarinitcode:
+		for s in pymod.__dict__['$$INITCODES']:
 			code = compile(pyast.Module(body=[s]), s.file, 'exec')
 			exec(code, pymod.__dict__)
 
@@ -1935,7 +1950,7 @@ class ExecodeGeneratorLLP64:
 				return ast
 			elif isinstance(stmt, LocalExtern):
 				value = pyast.Name(
-							id='$G',
+							id='$$G',
 							ctx=pyast.Load(),
 							lineno = stmt.first_token.line,
 							col_offset=stmt.first_token.col,
@@ -2815,7 +2830,7 @@ int test(int n){
 		print(s[:].decode()%n.value)
 	printf = cdll.msvcrt.printf
 	import sys
-	globals()['$G'] = sys.modules[__name__]
+	globals()['$$G'] = sys.modules[__name__]
 	import copy
 	#globals()['$CONSTSTR#0'] = compiler.globalvarconverter._conststrings[0]
 	#import pdb;pdb.set_trace()

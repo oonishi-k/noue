@@ -1133,11 +1133,13 @@ class ModuleFile(_scope):
 			me._last_token = token
 		
 	
-	def __init__(me, name=''):
+	def __init__(me, filename, name=''):
 		me._first_token = None
 		me._last_token  = None
 
-		me.name = name
+		me.filename = filename
+		import os.path
+		me.name = name or os.path.splitext(os.path.split(filename)[1])[0]
 		me.parent = None
 		me.statements = []
 	
