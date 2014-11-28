@@ -1,7 +1,7 @@
 
 Noue: C Language Emulator for Python
 =====================================
-
+[[日本語](readme_ja.md)]
 
 
 What is Noue?
