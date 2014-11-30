@@ -177,6 +177,12 @@ class UnsafeImplicitConversion(NoueWarning):
 					left=lefttype.name, right=righttype.name)
 		NoueWarning.__init__(me, pos, msg)
 		
+class ImplicitPointerConversion(NoueWarning):
+	def __init__(me, pos, lefttype, righttype):
+		msg = '"{right}"から"{left}"への暗黙の変換が行われました。'.format(
+					left=lefttype.name, right=righttype.name)
+		NoueWarning.__init__(me, pos, msg)
+		
 class CallingUnknownFunction(NoueWarning):
 	def __init__(me, id):
 		msg = '不明な関数"%s"が呼ばれました'%id.value

@@ -18,6 +18,31 @@ import ctypes as pyct
 import ast    as pyast
 import types
 
+class _int32(pyct._SimpleCData):
+	_type_ = 'i'
+	
+class _uint32(pyct._SimpleCData):
+	_type_ = 'I'
+	
+class _int64(pyct._SimpleCData):
+	_type_ = 'q'
+	
+class _uint64(pyct._SimpleCData):
+	_type_ = 'Q'
+	
+import ctypes.util as pyctutil
+import os
+if os.name == 'posix' and 'CYGWIN' in os.uname()[0].upper():
+	#CNativeFuncPtr = pyct.cdll.msvcrt._FuncPtr
+	class CNativeFuncPtr(pyct.cdll.msvcrt._FuncPtr):
+		_flags_ = pyct.cdll.msvcrt._FuncPtr._flags_
+else:
+	#cname = pyctutil.find_library('c')
+	#CNativeFuncPtr  = pyct.CDLL(pyctutil.find_library('c'))._FuncPtr
+	class CNativeFuncPtr(pyct.CDLL(pyctutil.find_library('c'))._FuncPtr):
+		_flags_ = pyct.CDLL(pyctutil.find_library('c'))._FuncPtr._flags_
+
+
 def genuniqueid(stnode):
 	seed  = tuple(map(ord, stnode.first_token.file))
 	seed += (stnode.first_token.line, stnode.first_token.col)
@@ -101,6 +126,44 @@ class ConstStringSolution:
 		me._conststrings += [ast]
 		
 		## const文字列を呼び出す
+		base = pyast.Call(
+			func=pyast.Name(id='$addressof',
+							ctx=pyast.Load(),
+							lineno=exp.first_token.line, col_offset=exp.first_token.col),
+			args=[pyast.Name(id='$$CONSTSTRING',
+							ctx=pyast.Load(),
+							lineno=exp.first_token.line, col_offset=exp.first_token.col)],
+			keywords=[],
+			starargs=None,
+			kwargs=None,
+			lineno=exp.first_token.line, col_offset=exp.first_token.col)
+			
+		value = pyast.BinOp(left=base, op=pyast.Add(),
+						right=pyast.Num(n=num*me.typeconverter.sizeof(TD_SIZE_T),
+										lineno=exp.first_token.line, col_offset=exp.first_token.col),
+						lineno=exp.first_token.line, col_offset=exp.first_token.col)
+						
+		func=pyast.Attribute(
+					value=me.typeconverter.typecall(TD_SIZE_T, exp.first_token),
+					attr='from_address',
+					ctx=pyast.Load(),
+					lineno = exp.first_token.line,col_offset=exp.first_token.col)
+		
+		value = pyast.Call(
+			func=func, 
+			args=[value],
+			keywords=[],
+			starargs=None,
+			kwargs=None,
+			lineno=exp.first_token.line, col_offset=exp.first_token.col)
+
+		value=pyast.Attribute(
+					value=value,
+					attr='value',
+					ctx=pyast.Load(),
+					lineno = exp.first_token.line,col_offset=exp.first_token.col)
+		return value
+		
 		res = pyast.Subscript(
 							value=pyast.Name(
 								id='$$CONSTSTRING',
@@ -402,6 +465,10 @@ class ExpressionConverter:
 			if isinstance(init, ConstString):
 				if is_sizedarray(restype):
 					val = me.conststring.conststring(init)
+					val = me.typeconverter.fromright(pointer_type(TD_CHAR), val, init.first_token)
+					val = pyast.Attribute(value=val,
+									attr='value',
+									lineno = init.first_token.line,col_offset=init.first_token.col)
 					copy = pyast.Call(
 						func=me.typeconverter.typecall(init.restype, init.first_token),
 						args=[],
@@ -488,7 +555,12 @@ class ExpressionConverter:
 	_expression.__compile = __compile
 	
 	def __compile(exp, me):
-		ass = Assign(exp.left, BinOp(exp.left.restype, exp.op[:-1], exp.left, exp.right))
+		if is_pointer(exp.left.restype) and is_pointer(exp.right.restype) and exp.op == '-=':
+			ass = Assign(exp.left, PtrSub(exp.left.restype, exp.left, exp.right))
+		elif (is_pointer(exp.left.restype) or is_pointer(exp.right.restype)) and exp.op[:-1] in '+-':
+			ass = Assign(exp.left, PtrAdd(exp.op[:-1], exp.left, exp.right))
+		else:
+			ass = Assign(exp.left, BinOp(exp.left.restype, exp.op[:-1], exp.left, exp.right))
 		return me.compile(ass)
 	ArgedAssign.__compile = __compile
 	
@@ -531,6 +603,37 @@ class ExpressionConverter:
 			 ctx=pyast.Load(),
 			 lineno=exp.first_token.line, col_offset=exp.first_token.col)
 			 
+		cfunc = pyast.Attribute(
+					value=value,
+					attr='__cfunc__',
+					ctx=pyast.Load(),
+					lineno=value.lineno,
+					col_offset=value.col_offset
+				 )
+		size_t = me.typeconverter.typecall(TD_SIZE_T, exp.first_token)
+		frombuffer = pyast.Attribute(
+					value=size_t,
+					attr='from_buffer',
+					ctx=pyast.Load(),
+					lineno=value.lineno,
+					col_offset=value.col_offset
+				 )
+				 
+		call = pyast.Call(func=frombuffer,
+						  args=[cfunc],keywords=[],
+						  starargs=None,
+						  kwargs=None,
+						  lineno=value.lineno,
+						  col_offset=value.col_offset)
+		return pyast.Attribute(
+					value=call,
+					attr='value',
+					ctx=pyast.Load(),
+					lineno=value.lineno,
+					col_offset=value.col_offset
+				 )
+				 
+		return value
 		func = me.typeconverter.typecall(exp.restype, exp.first_token)
 		
 		return pyast.Call(
@@ -741,8 +844,42 @@ class ExpressionConverter:
 	
 	
 	def __compile(exp, me):
+		## $$CONSTSTRING
+		return me.conststring.conststring(exp)
+		#val = me.conststring.conststring(exp)
+		
+		val = pyast.Call(
+			func=me.typeconverter.typecall(pointer_type(TD_CHAR), exp.first_token),
+			args=[val],
+			keywords=[],
+			starargs=None,
+			kwargs=None,
+			lineno = exp.first_token.line,col_offset=exp.first_token.col)
+		
+		call= pyast.Attribute(
+				value = me.typeconverter.typecall(TD_SIZE_T, exp.first_token),
+				attr = 'from_buffer', ctx=pyast.Load(),
+				lineno = exp.first_token.line,col_offset=exp.first_token.col)
+
+		val = pyast.Call(
+			func=call,
+			args=[val],
+			keywords=[],
+			starargs=None,
+			kwargs=None,
+			lineno = exp.first_token.line,col_offset=exp.first_token.col)
+		
+		val = pyast.Attribute(
+				value = val,
+				attr = 'value', ctx=pyast.Load(),
+				lineno = exp.first_token.line,col_offset=exp.first_token.col)
+		
+		return val
+		
+
 		## cast((c_char*SIZE)(*tuple($CONSTSTRING[index])), c_voidp).value or 0
 		val = me.conststring.conststring(exp)
+
 		
 		copy = pyast.Call(
 			func=me.typeconverter.typecall(exp.restype, exp.first_token),
@@ -1107,6 +1244,33 @@ class TypeConverter:
 		#return td._type.__toright(ast)
 		return ast
 	td_pointer.__fromright = __fromright
+	
+	
+	def __fromright(td, me, value, token):
+		## アドレス値からctypes._FuncPtr(=CNativeFuncPtr)型を取得
+		## ※dll上のネイティブ関数の型である_FuncPtr型とCFUNCTYPE()型は違うことに注意
+		
+		## (lambda c:(setattr(c, 'restype', RESTYPE),c)[0])(CNativeFuncPtr(ADDRESS))
+		st = pyast.parse("(lambda c:(setattr(c, 'restype', RESTYPE),c)[0])(CNativeFuncPtr(ADDRESS))").body[0].value
+		st.args[0].func.id      = '$CNativeFuncPtr'
+		st.args[0].args[0] = value
+		st.func.body.value.elts[0].func.id = '$setattr'
+		st.func.body.value.elts[0].args[2] = me.typecall(td.prototype.restype, token)
+		return st
+		
+		value = me.fromright(TD_SIZE_T, value, token)
+		ast = pyast.Call(
+				func=pyast.Attribute(
+					value=me.typecall(td, token),
+					attr='from_buffer',
+					ctx=pyast.Load(),
+					lineno=token.line,
+					col_offset=token.col),
+				 args=[value],
+				 keywords=[],starargs=None,kwargs=None,
+				 lineno = token.line,col_offset=token.col)
+		#return td._type.__toright(ast)
+		return ast
 	td_funcptr.__fromright = __fromright
 		
 	def typecall(me, restype, token):
@@ -1144,6 +1308,10 @@ class TypeConverter:
 	td_union.__typecall = __typecall
 	
 	def __typecall(restype, me, token):
+			return pyast.Name(id='$CNativeFuncPtr',ctx=pyast.Load(),
+							lineno=token.line,
+							col_offset=token.col)
+			
 			res  = me.typecall(restype.prototype.restype, token)
 			args = [me.typecall(arg.restype, token) for arg in restype.prototype.args]
 			return pyast.Call(
@@ -1312,6 +1480,7 @@ class TypeConverter:
 	td_pointer.__cnvtype = __cnvtype
 	
 	def __cnvtype(td, me):
+		return CNativeFuncPtr
 		try:
 			return td.__ctype
 		except AttributeError:
@@ -1342,7 +1511,7 @@ class TypeConverter:
 		
 	def __assign(restype, me, targetast, valueast):
 		return pyast.Call(
-			func=pyast.Name(id='setattr',
+			func=pyast.Name(id='$setattr',
 							ctx=pyast.Load(),
 							lineno=targetast.lineno,
 							col_offset=targetast.col_offset),
@@ -1450,7 +1619,7 @@ class TypeConverter:
 					col_offset=targetast.col_offset)
 					
 		return pyast.Call(
-			func=pyast.Name(id='setattr',
+			func=pyast.Name(id='$setattr',
 							ctx=pyast.Load(),
 							lineno=targetast.lineno,
 							col_offset=targetast.col_offset),
@@ -1483,6 +1652,39 @@ class TypeConverter:
 				 )
 	
 	td_primitive.__toright = __toright
+	
+	def __toright(td, me, ast):
+		cfunc = pyast.Attribute(
+					value=ast,
+					attr='__cfunc__',
+					ctx=pyast.Load(),
+					lineno=ast.lineno,
+					col_offset=ast.col_offset
+				 )
+		token = CodePositional('', ast.lineno, ast.col_offset, '')
+		size_t = me.typecall(TD_SIZE_T, token)
+		frombuffer = pyast.Attribute(
+					value=size_t,
+					attr='from_buffer',
+					ctx=pyast.Load(),
+					lineno=ast.lineno,
+					col_offset=ast.col_offset
+				 )
+				 
+		call = pyast.Call(func=frombuffer,
+						  args=[cfunc],
+						  lineno=ast.lineno,
+						  col_offset=ast.col_offset)
+		return pyast.Attribute(
+					value=call,
+					attr='value',
+					ctx=pyast.Load(),
+					lineno=ast.lineno,
+					col_offset=ast.col_offset
+				 )
+	
+	td_funcptr.__toright = __toright
+
 	
 	def __toright(td, me, ast):
 		val = pyast.Attribute(
@@ -1691,6 +1893,8 @@ class ExecodeGeneratorLLP64:
 		pymod.__dict__['$cast']      = ctypes.cast
 		pymod.__dict__['$addressof'] = ctypes.addressof
 		pymod.__dict__['$classalias']= classalias
+		pymod.__dict__['$setattr']   = setattr
+		pymod.__dict__['$CNativeFuncPtr']   = CNativeFuncPtr
 		
 		pymod.__dict__['__file__'] = module.filename
 		pycodes = []
@@ -1897,7 +2101,52 @@ class ExecodeGeneratorLLP64:
 			code += me.compile(stmt)
 		
 		ast.body = code
-		return [ast]
+		
+		## $FUNC.__cfunc__ = CFUNCTYPE($prototype)($FUNC)
+		if is_pointer(func.prototype.restype):
+			res  = me.typecnverter.typecall(TD_SIZE_T, func.last_token)
+		elif is_usertype(func.prototype.restype):
+			res  = pyast.Name(id='$py_object', ctx=pyast.Load()
+							, lineno=func.last_token, col_offset=func.last_col)
+		else:
+			res  = me.typecnverter.typecall(func.prototype.restype, func.last_token)
+		args = [me.typecnverter.typecall(arg.restype, func.last_token) for arg in func.prototype.args]
+
+		cfunc = pyast.Call(
+			func=pyast.Name(id='$CFUNCTYPE',
+							ctx=pyast.Load(),
+							lineno=func.last_token.line,
+							col_offset=func.last_token.col),
+			args=[res] + args,
+			keywords=[],
+			starargs=None,
+			kwargs=None,
+			lineno=func.last_token.line,
+			col_offset=func.last_token.col)
+		value = pyast.Call(
+			func=cfunc,
+			args=[pyast.Name(id=func.id, ctx=pyast.Load(),
+							lineno=func.last_token.line,
+							col_offset=func.last_token.col)],
+			keywords=[],
+			starargs=None,
+			kwargs=None,
+			lineno=func.last_token.line,
+			col_offset=func.last_token.col)
+		
+		assign = pyast.Assign(
+					targets=[
+						pyast.Attribute(value=pyast.Name(id=func.id, ctx=pyast.Load(),
+											lineno=func.last_token.line,
+											col_offset=func.last_token.col),
+										attr='__cfunc__', ctx=pyast.Store(),
+										lineno=func.last_token.line, col_offset=func.last_token.col)
+					],
+					value=value,
+					lineno=func.last_token.line, col_offset=func.last_token.col
+				)
+		#return [ast]
+		return [ast,assign]
 	DefineFunctionStmt.__compile = __compile
 	
 	
@@ -2298,6 +2547,7 @@ while 1:
 		
 		_scope.__init(stmt, me)
 		_scope.__init(stmt.body, me)
+		has_default = False
 		for s in stmt.body.statements:
 			if isinstance(s, CaseStmt):
 				#if s.value == 99:
@@ -2315,6 +2565,7 @@ while 1:
 					n.col_offset = s.first_token.col
 				
 			elif isinstance(s, DefaultStmt):
+				has_default = True
 				caselabel = pyast.Attribute(
 					value=pyast.Name(
 							id = '$LABEL', ctx=pyast.Load()
@@ -2328,6 +2579,19 @@ while 1:
 				ast.body += [caselabel]
 			else:
 				ast.body += me.compile(s)
+		if not has_default:
+			caselabel = pyast.Attribute(
+				value=pyast.Name(
+						id = '$LABEL', ctx=pyast.Load()
+					 ),
+					attr="$CASE$%s#DEFAULT"%switchid,ctx=pyast.Load())
+			caselabel = pyast.Expr(value = caselabel)
+			for n in pyast.walk(caselabel):
+				n.lineno = s.first_token.line
+				n.col_offset = s.first_token.col
+			
+			ast.body += [caselabel]
+			
 		ast.body += _scope.__escape(stmt.body, me)
 		ast.body += _scope.__escape(stmt, me)
 		
@@ -2391,6 +2655,7 @@ del __COUNT__
 		
 		dowhilebody[1].test.test.value.id = system_count_var_id
 		dowhilebody[1].test.body          = test
+		dowhilebody[1].test.orelse.value.elts[0].func.id = '$setattr'
 		dowhilebody[1].test.orelse.value.elts[0].args[0].id = system_count_var_id
 		
 		dowhilebody[2].targets[0].id = system_count_var_id
@@ -2463,6 +2728,7 @@ del __COUNT__
 		
 		forbody[1].test.value.elts[0].test.value.id = system_count_var_id
 		forbody[1].test.value.elts[0].body   = me.exprconverter.compile(scope.incl)
+		forbody[1].test.value.elts[0].orelse.func.id    = '$setattr'
 		forbody[1].test.value.elts[0].orelse.args[0].id = system_count_var_id
 		forbody[1].test.value.elts[1] = test
 		

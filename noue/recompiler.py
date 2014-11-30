@@ -59,6 +59,18 @@ class ReParser:
 	pyast.Return.__toline = __toline
 	
 	def __toline(ast, me, depth):
+		names = []
+		for a in ast.names:
+			if a.asname:
+				names += ['%s as %s'%(a.name, a.asname)]
+			else:
+				names += [a.name]
+		print(ast.lineno, '\t'*depth + 'import ' + ', '.join(names))
+		return
+		
+	pyast.Import.__toline = __toline
+	
+	def __toline(ast, me, depth):
 		print(ast.lineno, '\t'*depth + 'pass')
 		return
 		
@@ -103,6 +115,11 @@ class ReParser:
 		return me.tosource(exp.value) + '.' + exp.attr
 	pyast.Attribute.__tosource = __tosource
 	
+	def __tosource(exp, me):
+		args = [arg.arg for arg in exp.args.args]
+		body = me.tosource(exp.body)
+		return 'lambda ' + ','.join(args) + ':' + body
+	pyast.Lambda.__tosource = __tosource
 	
 	def __tosource(exp, me):
 		return me.tosource(exp.value) + '[%s]'%me.tosource(exp.slice)
@@ -160,6 +177,7 @@ class ReParser:
 	pyast.UnaryOp.__tosource = __tosource
 	pyast.USub.__s = '-'
 	pyast.UAdd.__s = '+'
+	pyast.Not.__s = 'not'
 	
 	def __tosource(exp, me):
 		return exp.id

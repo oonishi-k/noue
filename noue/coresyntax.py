@@ -586,8 +586,8 @@ class SyntaxCore:
 			elif strip_options(target_type(ltype)) == target_type(rtype):
 				pass
 			else:
-				err = CastError(first_token, ltype, rtype)
-				raise err
+				warnings.warn(ImplicitPointerConversion(first_token, ltype, rtype))
+				return True
 		elif is_usertype(ltype) and is_usertype(rtype):
 			if ltype != rtype:
 				err = CastError(first_token, ltype, rtype)
@@ -635,11 +635,11 @@ class SyntaxCore:
 	def _arged_assign(me, op, left, right):
 		if op in ('+=', '-='):
 			# errorチェック
-			res = me._addsub(op, left, right)
+			res = me._addsub(op[:-1], left, right)
 		elif op in ('*=', '/=', '%='):
-			res = me._divmul(op, left, right)
+			res = me._divmul(op[:-1], left, right)
 		elif op in ('<<=', '>>=', '&=', '|=', '^='):
-			res = me._bit_binop(op, left, right)
+			res = me._bit_binop(op[:-1], left, right)
 		else:
 			raise FatalError()
 		if not isinstance(res, ErrorExpression):
@@ -1222,9 +1222,12 @@ class SyntaxCore:
 				stmt = LocalExtern(restype, name, first_token, last_token)
 			elif strage == 'static':
 				stmt = LocalStaticStmt(restype, name, first_token, last_token)
-			elif strage == '':
+			elif strage == 'register':
+				stmt = RegisterVarStmt(restype, name, first_token, last_token)
+			elif strage == '' or strage == 'auto':
 				stmt = LocalVarStmt(restype, name, first_token, last_token)
 			else:
+				#import pdb;pdb.set_trace()
 				raise FatalError()
 		elif isinstance(scope, ModuleFile):
 			if strage == 'extern':
@@ -1255,7 +1258,47 @@ class SyntaxCore:
 				#scope.statements += [DummyStmt(first_token, last_token)]
 				me.addstatement(scope, DummyStmt(first_token, last_token))
 				return
-		if init is not None and type(init) == list:
+		#if init is not None and type(init) == list:
+		#	try:
+		#		stmt.restype,init = me.list_type_cherk(stmt.restype, init, stmt.first_token)
+		#	except NoueError as err:
+		#		warnings.warn(err)
+		#		#scope.statements += [DummyStmt(first_token, last_token)]
+		#		me.addstatement(scope, DummyStmt(first_token, last_token))
+		#		return scope.statements[-1]
+		#elif init is not None:
+		#	#print(init, init.restype, init.first_token.line_string)
+		#	try:
+		#		require_cast = me._assign_type_check(stmt.restype, init, first_token)
+		#		if require_cast or strip_options(stmt.restype) != strip_options(init.restype):
+		#			init = me.implicit_cast(scope, stmt.restype, init)
+		#		if is_unsizedarray(stmt.restype) and is_sizedarray(init.restype):
+		#			typ = target_type(stmt.restype)
+		#			typ = sizedarray_type(typ, arraysize(init.restype))
+		#			if is_const(stmt.restype):
+		#				typ = const_type(typ)
+		#			stmt.restype = typ
+		#		elif is_sizedarray(stmt.restype) and is_sizedarray(init.restype):
+		#			if arraysize(stmt.restype) < arraysize(init.restype):
+		#				msg = '%sは%sで初期化できません'%(stmt.restype.name, init.restype.name)
+		#				raise TypeError(stmt.first_token, msg)
+		#	except NoueError as err:
+		#		warnings.warn(err)
+		#		#scope.statements += [DummyStmt(first_token, last_token)]
+		#		me.addstatement(scope, DummyStmt(first_token, last_token))
+		#		return scope.statements[-1]
+			
+		#stmt.initexp= init
+		#stmt.parent = weakref.proxy(scope)
+		#scope.statements += [stmt]
+		me.addstatement(scope, stmt)
+		scope.__ids[name] = stmt
+		
+		return stmt
+		
+	def set_initexp(me, scope, stmt, init):
+		if init is None: return 
+		if type(init) == list:
 			try:
 				stmt.restype,init = me.list_type_cherk(stmt.restype, init, stmt.first_token)
 			except NoueError as err:
@@ -1263,10 +1306,10 @@ class SyntaxCore:
 				#scope.statements += [DummyStmt(first_token, last_token)]
 				me.addstatement(scope, DummyStmt(first_token, last_token))
 				return scope.statements[-1]
-		elif init is not None:
+		else:
 			#print(init, init.restype, init.first_token.line_string)
 			try:
-				require_cast = me._assign_type_check(stmt.restype, init, first_token)
+				require_cast = me._assign_type_check(stmt.restype, init, stmt.first_token)
 				if require_cast or strip_options(stmt.restype) != strip_options(init.restype):
 					init = me.implicit_cast(scope, stmt.restype, init)
 				if is_unsizedarray(stmt.restype) and is_sizedarray(init.restype):
@@ -1284,14 +1327,16 @@ class SyntaxCore:
 				#scope.statements += [DummyStmt(first_token, last_token)]
 				me.addstatement(scope, DummyStmt(first_token, last_token))
 				return scope.statements[-1]
-			
-		stmt.initexp= init
-		#stmt.parent = weakref.proxy(scope)
-		#scope.statements += [stmt]
-		me.addstatement(scope, stmt)
-		scope.__ids[name] = stmt
 		
-		return stmt
+		
+		stmt._defineVarStmt__initexp = init
+		
+		while type(init) == list:
+			init = init[-1]
+		if not is_expression(init):
+			raise FatalError()
+		
+		stmt.last_token = init.last_token
 		
 	def declfunc(me, scope, prototype, name, strage, options, first_token, last_token):
 		if not isinstance(strage, str):
@@ -1345,18 +1390,22 @@ class SyntaxCore:
 		for argdef in prototype.args:
 			if argdef.id:
 				stmt.__ids[argdef.id] = argdef
-		
+
 		if name in scope.__ids:
 			org = scope.__ids[name]
-			err = True
+			
 			if isinstance(org, _function_stmt):
+				err = False
 				if org.prototype.args is not None and len(org.prototype.args) == len(prototype.args):
+					err = True
 					for a1,a2 in zip(org.prototype.args, prototype.args):
 						if a1.restype != a2.restype:
 							break
 					else:
 						if org.prototype.has_vararg == prototype.has_vararg:
 							err = False
+			else:
+				err = True
 						
 			if err:
 				warnings.warn(DefineDuplication(stmt, scope.__ids[name]))

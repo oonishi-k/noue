@@ -648,6 +648,7 @@ class BinOp(_expbinop):
 			pass
 		else:
 			print(left.first_token.line_string)
+			import pdb;pdb.set_trace()
 			raise FatalError()
 		_expbinop.__init__(me, restype, op, left, right)
 		
@@ -880,32 +881,45 @@ class LocalExtern(_externVarStmt):
 		
 class GlobalExtern(_externVarStmt):
 	pass
-		
-class LocalVarStmt(_declareVarStmt):
+	
+class _defineVarStmt(_declareVarStmt):
 	def __init__(me, restype, id, first_token, last_token):
 		_declareVarStmt.__init__(me, restype, id, first_token, last_token)
-		me.strage  = ''
-		me.initexp = None
+		me.__initexp = None
+	
+	@property
+	def initexp(me):
+		return me.__initexp
 		
-class GlobalVarStmt(_declareVarStmt):
+		
+class LocalVarStmt(_defineVarStmt):
+	def __init__(me, restype, id, first_token, last_token):
+		_defineVarStmt.__init__(me, restype, id, first_token, last_token)
+		me.strage  = ''
+
+		
+class RegisterVarStmt(LocalVarStmt):
+	pass
+		
+class GlobalVarStmt(_defineVarStmt):
 	def __init__(me, restype, id, first_token, last_token):
 		#if id == 'in_t':
 		#	import pdb;pdb.set_trace()
-		_declareVarStmt.__init__(me, restype, id, first_token, last_token)
+		_defineVarStmt.__init__(me, restype, id, first_token, last_token)
 		me.strage  = ''
-		me.initexp = None
+
 		
-class LocalStaticStmt(_declareVarStmt):
+class LocalStaticStmt(_defineVarStmt):
 	def __init__(me, restype, id, first_token, last_token):
-		_declareVarStmt.__init__(me, restype, id, first_token, last_token)
+		_defineVarStmt.__init__(me, restype, id, first_token, last_token)
 		me.strage  = 'static'
-		me.initexp = None
+
 		
-class GlobalStaticStmt(_declareVarStmt):
+class GlobalStaticStmt(_defineVarStmt):
 	def __init__(me, restype, id, first_token, last_token):
-		_declareVarStmt.__init__(me, restype, id, first_token, last_token)
+		_defineVarStmt.__init__(me, restype, id, first_token, last_token)
 		me.strage  = 'static'
-		me.initexp = None
+
 		
 class DefineMemberStmt(_declareVarStmt):
 	def __init__(me, restype, id, bitsize, first_token, last_token):

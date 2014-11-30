@@ -6,6 +6,14 @@ import ctypes  as pyct
 import ast     as pyast
 import pickle
 
+try:
+	from .codegenerator import *
+except SystemError:
+	import imp
+	noue = imp.load_source('noue', './__init__.py')
+	from noue.codegenerator import *
+
+
 def build_code(code_fields):
 	return types.CodeType(*code_fields)
 	
@@ -56,11 +64,29 @@ def reduce_array(t):
 
 copyreg.pickle(type(pyct.c_int*1), reduce_array)
 
-def reduce_cfunc(t):
-	return (pyct.CFUNCTYPE, (t().restype,) + t().argtypes)
-	#return (print, (t().restype,) + t().argtypes)
 
-copyreg.pickle(type(pyct.CFUNCTYPE(None)), reduce_cfunc)
+
+#def reduce_cfunc(t):
+#	print('yes2', t)
+#	return (pyct.CFUNCTYPE(t.restype, *t.argtypes), ())
+#import ctypes
+#copyreg.pickle(pyct.CFUNCTYPE(ctypes.c_int).mro()[0], reduce_cfunc)
+#
+#
+#def reduce_cfunc(t):
+#	print('yes2', t)
+#	if t == CNativeFuncPtr: return 'CNativeFuncPtr'
+#	return (pyct.CFUNCTYPE, (t().restype,) + t().argtypes)
+##	#return (print, (t().restype,) + t().argtypes)
+##
+#copyreg.pickle(type(pyct.CFUNCTYPE(None)), reduce_cfunc)
+
+#def reduce_cfunc(t):
+#	print('yes', t)
+#	return 'CNativeFuncPtr'
+#	#return (print, (t().restype,) + t().argtypes)
+#
+#copyreg.pickle(type(CNativeFuncPtr), reduce_cfunc)
 
 def caches(mod):
 	CData = pyct.c_int.mro()[2]
@@ -72,12 +98,16 @@ def caches(mod):
 			pass
 		elif isinstance(val, types.FunctionType) and val.__module__ == mod.__name__:
 			#print(val, val.__module__, val.__name__)
-			d[name] = val.__code__
+			#if name in ('$CFUNCTYPE', '$CNativeFuncPtr'): continue
+			#print(name, val.__code__)
+			d[name] = (val.__code__, val.__cfunc__.restype, val.__cfunc__.argtypes)
+			#d[name] = (val.__code__)
 		elif name == '$$G':
 			continue
 		elif isinstance(val, CData):
 			continue
 		else:
+			#if name in ('$CFUNCTYPE', '$CNativeFuncPtr'): continue
 			#print(name, val)
 			d[name] = val
 			
@@ -95,8 +125,9 @@ def loads(string):
 		pymod.__dict__['__builtins__'][key] = val
 			
 	for attr,val in members.items():
-		if isinstance(val, types.CodeType):
-			pymod.__dict__[attr] = types.FunctionType(val, pymod.__dict__)
+		if type(val) == tuple and isinstance(val[0], types.CodeType):
+			pymod.__dict__[attr] = types.FunctionType(val[0], pymod.__dict__)
+			pymod.__dict__[attr].__cfunc__ = pyct.CFUNCTYPE(val[1], *val[2])(pymod.__dict__[attr])
 		else:
 			pymod.__dict__[attr] = val
 

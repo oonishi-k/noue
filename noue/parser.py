@@ -1358,23 +1358,25 @@ class Parser:
 				else:
 					warnings.warn(ParseUnexpectedToken(me.prev(1)))
 					id = me.cur
+					
+				if strage == 'typedef':
+					stmt = me.compiler.typedef(scope, restype, id.value, first_token, me.cur)
+				else:
+					stmt = me.compiler.declarevar(scope, restype, id.value, None, strage, options, first_token, me.cur)
 				
 				if me.cur.type == '=':
-					if strage in ('extern', 'typedef'):
-						## extern,typedefに対して初期化値が定義されている。継続
-						warnings.warn(SemanticError(me.cur, '%sに対する初期化は不正です。'%strage))
 					yield from me.seek()
 					if me.cur.type == '{':
 						init = yield from me.parse_initlist(scope)
 					else:
 						init = yield from me.parse_expression(scope)
-				else:
-					init = None
+					if strage in ('extern', 'typedef'):
+						## extern,typedefに対して初期化値が定義されている。継続
+						warnings.warn(SemanticError(me.cur, '%sに対する初期化は不正です。'%strage))
+					else:
+						me.compiler.set_initexp(scope, stmt, init)
+
 				
-				if strage == 'typedef':
-					stmt = me.compiler.typedef(scope, restype, id.value, first_token, me.cur)
-				else:
-					stmt = me.compiler.declarevar(scope, restype, id.value, init, strage, options, first_token, me.cur)
 
 
 

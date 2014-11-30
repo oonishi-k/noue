@@ -413,11 +413,21 @@ if __name__ == '__main__':
 	#include <string.h>
 	int G[3];
 	char buffer[256];
+	int test();
+	int comp(){return 0;}
+	typedef int(*P)(void);
+	int qsort(P);
+	P x;
 	int test(int n, char* p)
 	{	
+		static char c = 0;
+		qsort(comp);
+		int size = sizeof(size);
 		//const char* p = "";
+		p += 1;
+		p = &n;
 		sprintf(buffer, "test%s\n", p);
-		for(int i=0; i<n+G[0]; ++i){
+		for(int i=0; i<n; ++i){
 			printf("HelloWorld %d\n", i);
 			fflush(stdout);
 			//#@py: print(G)
@@ -427,7 +437,7 @@ if __name__ == '__main__':
 	}
 	"""
 	#with warnings.catch_warnings(record=True):
-	warnings.filterwarnings('error')
+	warnings.filterwarnings('error', category=NoueError)
 	co = compiler.compile_source(src, __file__, lno)
 	p = compiler.parse_source(src, __file__, lno, None)
 	ast = compiler.compiler.dump(p)
@@ -440,9 +450,11 @@ if __name__ == '__main__':
 	#print(ast[0].value.func.id)
 	import recompiler
 	re = recompiler.ReParser()
-	re.toline(ast[0], 0)
-	re.toline(ast[1], 0)
-	re.toline(ast[2], 0)
+	for st in ast:
+		re.toline(st, 0)
+	#re.toline(ast[0], 0)
+	#re.toline(ast[1], 0)
+	#re.toline(ast[2], 0)
 	
 	print()
 	for s in compiler.compiler.globalvarconverter.staticvarcreatecode:
@@ -452,9 +464,19 @@ if __name__ == '__main__':
 	for s in compiler.compiler.conststring.statements:
 		re.toline(s, 0)
 
+	compiler.savecache(co, 'test.dat')
+	
 	from ctypes import*
 	co.sprintf= cdll.msvcrt.sprintf
 	co.printf = cdll.msvcrt.printf
+	def printf(*args):
+		#import pdb;pdb.set_trace()
+		print(args)
+	printf.__cfunc__ = CFUNCTYPE(c_int, *(c_voidp,)*64)(printf)
+	co.printf = printf
+	
+	co.qsort = printf
+		
 	co.fflush = cdll.msvcrt.fflush
 	cdll.msvcrt.__iob_func.restype = c_voidp
 	__iob = cdll.msvcrt.__iob_func()
@@ -468,5 +490,5 @@ if __name__ == '__main__':
 	print(res)
 	res = co.test(c_int(8), c_char_p(b''))
 	print(res)
-	compiler.savecache(co)
-	
+
+	compiler.loadcache('test.dat')
