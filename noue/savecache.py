@@ -31,13 +31,15 @@ copyreg.pickle(types.CodeType, reduce_code)
 
 structs = {}
 def define_struct(id, name, fileds):
+	#debuglog('str', id, name)
 	#print('define_struct', name, fileds)
-	if name not in structs:
+	if id not in structs:
 		structs[id] = type(name, (pyct.Structure,), {})
 	structs[id]._fields_ = fileds
 	return structs[id]
 
 def define_ptr(id, name):
+	#debuglog('ptr', id, name)
 	if id not in structs:
 		structs[id] = type(name, (pyct.Structure,), {})
 	return pyct.POINTER(structs[id])
@@ -55,7 +57,9 @@ copyreg.pickle(type(pyct.Structure), reduce_struct)
 
 def reduce_ptr(t):
 	#print(define_ptr, t._type_)
-	return (define_ptr, (id(t._type_), t._type_.__name__,))
+	if issubclass(t._type_, pyct.Structure):
+		return (define_ptr, (id(t._type_), t._type_.__name__,))
+	return (pyct.POINTER, (t._type_,))
 
 copyreg.pickle(type(pyct.POINTER('')), reduce_ptr)
 

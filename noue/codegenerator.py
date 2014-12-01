@@ -1251,7 +1251,7 @@ class TypeConverter:
 		## ※dll上のネイティブ関数の型である_FuncPtr型とCFUNCTYPE()型は違うことに注意
 		
 		## (lambda c:(setattr(c, 'restype', RESTYPE),c)[0])(CNativeFuncPtr(ADDRESS))
-		st = pyast.parse("(lambda c:(setattr(c, 'restype', RESTYPE),c)[0])(CNativeFuncPtr(ADDRESS))").body[0].value
+		st = pyast.parse("(lambda c:(setattr(c, 'restype', RESTYPE),c)[1])(CNativeFuncPtr(ADDRESS))").body[0].value
 		st.args[0].func.id      = '$CNativeFuncPtr'
 		st.args[0].args[0] = value
 		st.func.body.value.elts[0].func.id = '$setattr'
@@ -1673,6 +1673,9 @@ class TypeConverter:
 				 
 		call = pyast.Call(func=frombuffer,
 						  args=[cfunc],
+						  keywords=[],
+						  starargs=None,
+						  kwargs=None,
 						  lineno=ast.lineno,
 						  col_offset=ast.col_offset)
 		return pyast.Attribute(
@@ -1903,6 +1906,11 @@ class ExecodeGeneratorLLP64:
 			pycodes += codes
 			me.typecnverter.setnames(pymod.__dict__)
 			if codes:
+				#for c in codes:
+				#	for n in pyast.walk(c):
+				#		if isinstance(n, pyast.Call) and not hasattr(n, 'keywords'):
+				#			import pdb;pdb.set_trace()
+				#			raise
 				code = compile(pyast.Module(body=codes), stmt.first_token.file, 'exec')
 				exec(code, pymod.__dict__)
 				

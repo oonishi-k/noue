@@ -411,17 +411,18 @@ if __name__ == '__main__':
 	src = r"""
 	#include <stdio.h>
 	#include <string.h>
+	#include <stdlib.h>
 	int G[3];
 	char buffer[256];
 	int test();
 	int comp(){return 0;}
-	typedef int(*P)(void);
-	int qsort(P);
-	P x;
+	//typedef int(*P)(void);
+	//int qsort(P);
+	//P x;
 	int test(int n, char* p)
 	{	
 		static char c = 0;
-		qsort(comp);
+		//qsort(comp);
 		int size = sizeof(size);
 		//const char* p = "";
 		p += 1;
@@ -435,6 +436,58 @@ if __name__ == '__main__':
 		G[0]++;
 		return 0;
 	}
+	
+	
+	typedef struct{
+		double x,y;
+	}vector_t;
+	
+	int comp(const vector_t *l, const vector_t *r)
+	{
+		//@py: print(l[0].x, r[0].y)
+		printf("x=%lf y=%lf ", l->x, l->y);
+		printf("x=%lf y=%lf\n", r->x, r->y);
+		if(l->x<r->x) return -1;
+		if(l->x>r->x) return  1;
+		if(l->y<r->y) return -1;
+		if(l->y>r->y) return  1;
+		return 0;
+		
+	}
+	
+	void test2(size_t size, vector_t a[])//, int(*Comp)(const void*, const void*))
+	{
+		for(int i=0; i<size; ++i){
+			printf("%d x=%lf y=%lf\n", i, a[i].x, a[i].y);
+		}
+		printf("\n");
+		qsort(a, size, sizeof(vector_t), comp);
+		//qsort(a, size, sizeof(vector_t), Comp);
+		//qsort(a, size, sizeof(vector_t), (int(*)(const void*, const void*))Comp);
+		for(int i=0; i<size; ++i){
+			printf("%d x=%lf y=%lf\n", i, a[i].x, a[i].y);
+		}
+	}
+	
+	
+	int compi(const int *l, const int *r)
+	{
+		return *l - *r;
+		
+	}
+	
+	void test3(size_t size, int a[])//, int(*Comp)(const void*, const void*))
+	{
+		for(int i=0; i<size; ++i){
+			printf("%d x=%d\n", i, a[i]);
+		}
+		printf("\n");
+		qsort(a, size, sizeof(int), (int(*)(const void*, const void*))compi);
+		for(int i=0; i<size; ++i){
+			printf("%d x=%d\n", i, a[i]);
+		}
+	}
+	
 	"""
 	#with warnings.catch_warnings(record=True):
 	warnings.filterwarnings('error', category=NoueError)
@@ -473,9 +526,24 @@ if __name__ == '__main__':
 		#import pdb;pdb.set_trace()
 		print(args)
 	printf.__cfunc__ = CFUNCTYPE(c_int, *(c_voidp,)*64)(printf)
-	co.printf = printf
+	#co.printf = printf
+	co.printf = cdll.msvcrt.printf
 	
-	co.qsort = printf
+	co.qsort = cdll.msvcrt.qsort
+	#co.qsort = printf
+	from random import random
+	a = (c_int*8)()
+	for i in range(8):
+		a[i] = int(random()*1000)
+	co.test3(c_size_t(8), a)
+
+	
+	a = (co.vector_t*8)()
+	for i in range(8):
+		a[i].x = random()*1000
+		a[i].y = random()*1000
+	co.test2(c_size_t(8), a)
+	exit()
 		
 	co.fflush = cdll.msvcrt.fflush
 	cdll.msvcrt.__iob_func.restype = c_voidp
